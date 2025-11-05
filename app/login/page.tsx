@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { supabaseBrowser } from "@lib/supabaseBrowser";
+import { supabaseBrowser } from "marketing-ark-site/lib/supabaseBrowser";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
