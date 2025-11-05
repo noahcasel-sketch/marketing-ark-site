@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "../../lib/supabaseServer";
+import { createClient } from "../../../lib/supabaseServer";
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -17,3 +17,4 @@ export async function GET(req: Request) {
 
   return NextResponse.redirect(new URL("/portal", req.url));
 }
+
