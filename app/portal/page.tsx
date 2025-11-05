@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabaseServer";
+import { createClient } from "@lib/supabaseServer";
 import Link from "next/link";
 
 export default async function PortalPage() {
