@@ -1,0 +1,50 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+// If you prefer to fetch current user (admin check) via your server helper, you can,
+// but for this invite endpoint we’ll use an allowlist of admin emails.
+
+export async function POST(req: Request) {
+  try {
+    const { email } = await req.json();
+
+    // 1) Basic input validation + company domain guard
+    if (!email || typeof email !== "string") {
+      return NextResponse.json({ error: "Email is required" }, { status: 400 });
+    }
+    if (!email.toLowerCase().endsWith("@marketing-ark.com")) {
+      return NextResponse.json({ error: "Only company emails allowed" }, { status: 400 });
+    }
+
+    // 2) Enforce admin allowlist from env (server-only)
+    const admins = (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+
+    // Optional: If you want to check the currently logged-in user,
+    // you can require an "X-Admin-Email" header that your /admin page sends,
+    // or switch to using your server helper to read the session cookie.
+    const adminHeader = req.headers.get("x-admin-email")?.toLowerCase();
+    if (!adminHeader || !admins.includes(adminHeader)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // 3) Call Supabase Admin API with the service role key (never expose to browser)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
+      redirectTo: "https://www.marketing-ark.com/portal",
+    });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ ok: true, user: data.user });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+  }
+}
