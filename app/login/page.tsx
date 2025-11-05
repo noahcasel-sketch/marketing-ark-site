@@ -18,7 +18,7 @@ export default function LoginPage() {
         shouldCreateUser: false,
         emailRedirectTo:
           typeof window !== "undefined"
-            ? `${window.location.origin}/portal`
+            ? `${window.location.origin}/auth/callback`
             : undefined,
       },
     });
