@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
-import { createClient } from "../../../lib/supabaseServer"; // path is correct from /app/auth/callback
+import { createClient } from "../../lib/supabaseServer";
 
-export async function GET(request: Request) {
-  // Supabase magic link / invite / OTP returns ?code=...
-  const url = new URL(request.url);
+export async function GET(req: Request) {
+  const url = new URL(req.url);
   const code = url.searchParams.get("code");
 
   if (code) {
-    // This will exchange the code for a session and set the auth cookies
     const supabase = createClient();
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      return NextResponse.redirect(
+        new URL(`/login?error=${encodeURIComponent(error.message)}`, req.url)
+      );
+    }
   }
 
-  // Send them to the portal once the cookie is set
-  return NextResponse.redirect(new URL("/portal", request.url));
+  return NextResponse.redirect(new URL("/portal", req.url));
 }
