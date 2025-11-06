@@ -1,6 +1,6 @@
 // lib/supabaseServer.ts
-import { cookies } from "next/headers";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { cookies } from 'next/headers';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
 export function createClient() {
   const cookieStore = cookies();
@@ -14,14 +14,12 @@ export function createClient() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: CookieOptions) {
-          // Persist auth cookies set by Supabase
           cookieStore.set({ name, value, ...options });
         },
         remove(name: string, options: CookieOptions) {
-          // Remove cookie by setting empty value (Supabase passes correct options)
-          cookieStore.set({ name, value: "", ...options });
-        }
-      }
+          cookieStore.set({ name, value: '', ...options });
+        },
+      },
     }
   );
 }
