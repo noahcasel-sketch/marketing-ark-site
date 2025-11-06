@@ -1,3 +1,4 @@
+// app/auth/callback/route.ts
 export const runtime = 'nodejs';
 
 import { NextResponse } from "next/server";
@@ -8,10 +9,12 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
 
-  // bind cookies to this redirect response
-  const res = NextResponse.redirect(new URL("/portal", url));
+  // For debugging, send them to /whoami so we can *see* if the cookie took.
+  const redirectTo = new URL("/whoami", url);
+  const res = NextResponse.redirect(redirectTo);
 
   if (code) {
+    // Bind auth cookie writes to THIS redirect response
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -40,4 +43,3 @@ export async function GET(req: Request) {
 
   return res;
 }
-
