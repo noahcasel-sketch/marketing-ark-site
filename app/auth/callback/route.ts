@@ -6,12 +6,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
 
-  // Prepare the redirect response first, so we can attach cookies to it
-  const redirectTo = new URL("/portal", url);
-  const res = NextResponse.redirect(redirectTo);
+  const res = NextResponse.redirect(new URL("/portal", url));
 
   if (code) {
-    // Bind cookie writes to THIS response (res.cookies.set)
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
