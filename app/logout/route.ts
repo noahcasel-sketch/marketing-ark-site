@@ -1,8 +1,39 @@
+// app/logout/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "../../lib/supabaseServer";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { cookies } from "next/headers";
 
-export async function POST() {
-  const supabase = createClient();
+async function signOutAndRedirect(req: Request) {
+  const url = new URL(req.url);
+  const res = NextResponse.redirect(new URL("/", url));
+
+  // Bind cookie writes to THIS response so auth cookies are cleared on redirect
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookies().get(name)?.value;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: CookieOptions) {
+          res.cookies.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+
   await supabase.auth.signOut();
-  return NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"));
+  return res;
+}
+
+export async function POST(req: Request) {
+  return signOutAndRedirect(req);
+}
+
+export async function GET(req: Request) {
+  return signOutAndRedirect(req);
 }
