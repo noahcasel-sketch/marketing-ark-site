@@ -1,21 +1,16 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { createClient } from '../../../lib/supabaseBrowser';
 
 export default function AuthCallback() {
   const router = useRouter();
 
   useEffect(() => {
-    const handleHash = async () => {
-      const hash = window.location.hash;
-      if (!hash) {
-        router.replace('/login?error=no_hash');
-        return;
-      }
+    const run = async () => {
+      // Parse the hash fragment from the URL
+      const hash = window.location.hash; // "#access_token=...&refresh_token=..."
+      const params = new URLSearchParams(hash.slice(1));
 
-      // Convert #access_token=...&refresh_token=... into URLSearchParams
-      const params = new URLSearchParams(hash.substring(1));
       const access_token = params.get('access_token');
       const refresh_token = params.get('refresh_token');
 
@@ -24,21 +19,29 @@ export default function AuthCallback() {
         return;
       }
 
-      const supabase = createClient();
-      await supabase.auth.setSession({
-        access_token,
-        refresh_token,
+      // Ask the server to set the Supabase auth cookies
+      const res = await fetch('/api/auth/set-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token, refresh_token }),
+        credentials: 'include',
       });
 
-      // Redirect to portal after saving session
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'server_error' }));
+        router.replace(`/login?error=${encodeURIComponent(error || 'server_error')}`);
+        return;
+      }
+
+      // Server cookie is set — go to the portal
       router.replace('/portal');
     };
 
-    handleHash();
+    run();
   }, [router]);
 
   return (
-    <main style={{ padding: 32, fontFamily: 'sans-serif' }}>
+    <main style={{ padding: 32 }}>
       <h2>Signing you in…</h2>
     </main>
   );
