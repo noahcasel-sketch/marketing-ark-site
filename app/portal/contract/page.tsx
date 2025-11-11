@@ -1,80 +1,88 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function ContractPage() {
-  const [me, setMe] = useState<{ email?: string; userId?: string } | null>(null);
   const [ready, setReady] = useState(false);
+  const [urlsReady, setUrlsReady] = useState(false);
 
-  // 1️⃣ Load user info from /api/me
+  // We freeze the final URLs in state exactly once
+  const [dsaSrc, setDsaSrc] = useState<string | null>(null);
+  const [w9Src, setW9Src] = useState<string | null>(null);
+
+  // Base DocuSeal links
+  const DSA_BASE = "https://docuseal.com/d/5gcuQfA4DStfea";
+  const W9_BASE  = "https://docuseal.com/d/9k7XDpbubLzDho";
+
+  // onlyRunOnce guard
+  const initialized = useRef(false);
+
+  // 1) Load DocuSeal script once
   useEffect(() => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.docuseal.com/js/form.js";
+    s.async = true;
+    s.onload = () => setReady(true);
+    document.body.appendChild(s);
+    return () => document.body.removeChild(s);
+  }, []);
+
+  // 2) Resolve /api/me once, then freeze final URLs (with or without params)
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     (async () => {
+      let email: string | undefined;
+      let uid: string | undefined;
+
       try {
         const res = await fetch("/api/me", { cache: "no-store" });
         if (res.ok) {
-          const data = await res.json();
-          setMe({ email: data.email, userId: data.userId });
+          const me = await res.json();
+          email = me?.email;
+          uid = me?.userId;
         }
-      } catch (err) {
-        console.warn("Failed to fetch /api/me", err);
+      } catch {
+        // ignore — we’ll fall back to base URLs
       }
+
+      const withParams = (base: string) => {
+        if (!email || !uid) return base;
+        const u = new URL(base);
+        u.searchParams.set("email", email);
+        u.searchParams.set("uid", uid);
+        return u.toString();
+      };
+
+      setDsaSrc(withParams(DSA_BASE));
+      setW9Src(withParams(W9_BASE));
+      setUrlsReady(true);
     })();
   }, []);
-
-  // 2️⃣ Load DocuSeal script
-  useEffect(() => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.docuseal.com/js/form.js";
-    script.async = true;
-    script.onload = () => setReady(true);
-    document.body.appendChild(script);
-    return () => document.body.removeChild(script);
-  }, []);
-
-  // 3️⃣ Helper to append ?email & ?uid to URLs
-  const appendParams = (url: string) => {
-    if (!me?.email || !me?.userId) return url;
-    const u = new URL(url);
-    u.searchParams.set("email", me.email);
-    u.searchParams.set("uid", me.userId);
-    return u.toString();
-  };
-
-  // 4️⃣ Final URLs
-  const DSA_URL = appendParams("https://docuseal.com/d/5gcuQfA4DStfea");
-  const W9_URL = appendParams("https://docuseal.com/d/9k7XDpbubLzDho");
 
   return (
     <main style={{ maxWidth: 900, margin: "40px auto" }}>
       <h1>Documents</h1>
 
-      {!ready && <p>Loading forms...</p>}
+      {!(ready && urlsReady) && <p>Loading forms…</p>}
 
-      {ready && (
+      {ready && urlsReady && (
         <>
           <section style={{ marginBottom: 48 }}>
             <h2>Direct Seller Agreement</h2>
+            {/* IMPORTANT: Do not change data-src after first render */}
             <docuseal-form
-              data-src={DSA_URL}
-              style={{
-                display: "block",
-                width: "100%",
-                minHeight: 800,
-                border: "none",
-              }}
+              data-src={dsaSrc!}
+              style={{ display: "block", width: "100%", minHeight: 800, border: "none" }}
             ></docuseal-form>
           </section>
 
           <section>
             <h2>W-9 Form</h2>
             <docuseal-form
-              data-src={W9_URL}
-              style={{
-                display: "block",
-                width: "100%",
-                minHeight: 800,
-                border: "none",
-              }}
+              data-src={w9Src!}
+              style={{ display: "block", width: "100%", minHeight: 800, border: "none" }}
             ></docuseal-form>
           </section>
         </>
