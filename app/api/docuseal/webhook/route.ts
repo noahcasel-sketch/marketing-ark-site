@@ -1,6 +1,6 @@
-// app/api/docuseal/webhook/route.ts
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs"; // ensure Node runtime (NOT Edge)
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -11,24 +11,33 @@ const supa = () =>
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+function sanitizeName(s: string) {
+  return (s || "signed").replace(/[^\w.\-]+/g, "_");
+}
+
 export async function POST(req: Request) {
+  const admin = supa();
+
   try {
     const payload = await req.json();
+    // TEMP: Log a compact preview (check Vercel → Deployments → Functions/Logs)
+    console.log(
+      "DocuSeal incoming:",
+      JSON.stringify({
+        event_type: payload?.event_type ?? payload?.type ?? payload?.event,
+        email: payload?.data?.email,
+        docs: (payload?.data?.documents || []).map((d: any) => d?.name),
+      })
+    );
 
-    // Support both DocuSeal shapes
+    // Handle both shapes: event_type or type
     const eventType =
-      payload?.event_type || // ← your payload has this
-      payload?.type ||
-      payload?.event ||
-      null;
-
+      payload?.event_type || payload?.type || payload?.event || null;
     if (eventType !== "form.completed") {
-      // Log and ignore other events
-      console.log("DocuSeal webhook ignored event:", eventType);
+      console.log("Ignoring event:", eventType);
       return NextResponse.json({ ok: true, ignored: eventType ?? "unknown" });
     }
 
-    // Extract data per your sample
     const data = payload?.data ?? {};
     const documents: Array<{ name?: string; url: string }> = data.documents || [];
     const signerEmail: string | null =
@@ -36,62 +45,77 @@ export async function POST(req: Request) {
       data.submission?.submitters?.[0]?.email ||
       null;
 
-    if (!documents.length) {
-      throw new Error("No documents in webhook payload.");
-    }
-    if (!signerEmail) {
-      throw new Error("Missing signer email in webhook payload.");
-    }
+    if (!documents.length) throw new Error("No documents in payload.");
+    if (!signerEmail) throw new Error("Missing signer email in payload.");
 
-    const admin = supa();
-
-    // Resolve the Supabase user_id by email
-    // (Use profiles table if you have one; otherwise listUsers is fine for your volume.)
+    // ---- Try to find Supabase user by email
     let userId: string | null = null;
-    // Try first page (increase pages if you have many users)
-    const { data: list1, error: listErr1 } = await admin.auth.admin.listUsers({
-      page: 1,
-      perPage: 200,
-    });
-    if (listErr1) throw listErr1;
-    userId =
-      list1?.users?.find(
-        (u: any) => u?.email?.toLowerCase() === signerEmail.toLowerCase()
-      )?.id || null;
 
+    // (A) If you have your own reps/profiles table with email → user_id mapping, prefer it:
+    // const { data: prof } = await admin.from("profiles").select("user_id").eq("email", signerEmail).maybeSingle();
+    // userId = prof?.user_id || null;
+
+    // (B) Fallback to auth admin list (fine for your volume)
     if (!userId) {
-      throw new Error(`No Supabase auth user found for email ${signerEmail}`);
+      const { data: page1, error: listErr } = await admin.auth.admin.listUsers({
+        page: 1,
+        perPage: 200,
+      });
+      if (listErr) throw listErr;
+      userId =
+        page1?.users?.find(
+          (u: any) => u?.email?.toLowerCase() === signerEmail.toLowerCase()
+        )?.id || null;
     }
 
-    // Download each signed PDF and save to Storage + DB
+    const unmatchedFolder = `_unmatched/${signerEmail.toLowerCase()}`;
+
     for (const d of documents) {
       const res = await fetch(d.url, { cache: "no-store" });
-      if (!res.ok) throw new Error(`Failed to download PDF: ${await res.text()}`);
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(`Failed to download PDF: ${t}`);
+      }
       const bytes = new Uint8Array(await res.arrayBuffer());
+      const safeName = sanitizeName(d.name || "signed");
+      const filename = `${safeName}-${Date.now()}.pdf`;
 
-      // Store inside the 'rep-docs' bucket at `${user_id}/...`
-      const safeName = (d.name || "signed").replace(/[^\w.\-]+/g, "_");
-      const path = `${userId}/${safeName}-${Date.now()}.pdf`;
+      // If we couldn't find a user, store under an "_unmatched" folder so nothing is lost.
+      const storagePath = userId ? `${userId}/${filename}` : `${unmatchedFolder}/${filename}`;
 
+      // Upload to Storage (path is INSIDE the 'rep-docs' bucket)
       const { error: upErr } = await admin.storage
         .from("rep-docs")
-        .upload(path, bytes, { contentType: "application/pdf", upsert: true });
+        .upload(storagePath, bytes, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
       if (upErr) throw upErr;
 
-      const { error: dbErr } = await admin.from("documents").upsert({
-        user_id: userId,
-        doc_type: safeName.toLowerCase().includes("w9") ? "w9" : "contract",
-        storage_path: path, // path INSIDE bucket (no bucket prefix)
-        status: "signed",
-      });
-      if (dbErr) throw dbErr;
+      // Insert documents row only if we have a user_id (your schema requires NOT NULL)
+      if (userId) {
+        const docType = safeName.toLowerCase().includes("w9") ? "w9" : "contract";
+        const { error: dbErr } = await admin.from("documents").upsert({
+          user_id: userId,
+          doc_type: docType,
+          storage_path: storagePath, // do NOT include bucket prefix here
+          status: "signed",
+        });
+        if (dbErr) throw dbErr;
+      } else {
+        console.warn(
+          "No Supabase user matched for email; stored under _unmatched:",
+          signerEmail,
+          storagePath
+        );
+      }
 
-      console.log("Saved signed PDF:", { userId, path, name: d.name });
+      console.log("Saved signed PDF:", { email: signerEmail, userId, storagePath });
     }
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    console.error("DocuSeal webhook error:", e?.message, e);
+    console.error("DocuSeal webhook error:", e?.message);
     return NextResponse.json({ error: e?.message || "Webhook error" }, { status: 500 });
   }
 }
