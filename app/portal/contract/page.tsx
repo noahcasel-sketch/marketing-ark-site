@@ -3,51 +3,45 @@
 import { useEffect, useRef, useState } from "react";
 
 export default function ContractPage() {
-  const [ready, setReady] = useState(false);
-  const [urlsReady, setUrlsReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [booted, setBooted] = useState(false);
 
-  // We freeze the final URLs in state exactly once
-  const [dsaSrc, setDsaSrc] = useState<string | null>(null);
-  const [w9Src, setW9Src] = useState<string | null>(null);
+  const DSA_BASE = "https://docuseal.com/d/5gcuQfA4DStfea"; // Direct Seller Agreement
+  const W9_BASE  = "https://docuseal.com/d/9k7XDpbubLzDho"; // W-9
 
-  // Base DocuSeal links
-  const DSA_BASE = "https://docuseal.com/d/5gcuQfA4DStfea";
-  const W9_BASE  = "https://docuseal.com/d/9k7XDpbubLzDho";
-
-  // onlyRunOnce guard
-  const initialized = useRef(false);
-
-  // 1) Load DocuSeal script once
+  // 1) Ensure DocuSeal script exists (only once per page load)
   useEffect(() => {
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://cdn.docuseal.com/js/form.js"]');
+    if (existing) {
+      setBooted(true);
+      return;
+    }
     const s = document.createElement("script");
     s.src = "https://cdn.docuseal.com/js/form.js";
     s.async = true;
-    s.onload = () => setReady(true);
-    document.body.appendChild(s);
-    return () => document.body.removeChild(s);
+    s.onload = () => setBooted(true);
+    document.head.appendChild(s);
   }, []);
 
-  // 2) Resolve /api/me once, then freeze final URLs (with or without params)
+  // 2) After script is ready, build the final HTML exactly once
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
+    if (!booted || !containerRef.current) return;
 
     (async () => {
       let email: string | undefined;
       let uid: string | undefined;
 
+      // Try to get /api/me for hidden prefill; ignore errors
       try {
-        const res = await fetch("/api/me", { cache: "no-store" });
-        if (res.ok) {
-          const me = await res.json();
-          email = me?.email;
-          uid = me?.userId;
+        const r = await fetch("/api/me", { cache: "no-store" });
+        if (r.ok) {
+          const j = await r.json();
+          email = j?.email;
+          uid = j?.userId;
         }
-      } catch {
-        // ignore — we’ll fall back to base URLs
-      }
+      } catch {/* ignore */}
 
-      const withParams = (base: string) => {
+      const addParams = (base: string) => {
         if (!email || !uid) return base;
         const u = new URL(base);
         u.searchParams.set("email", email);
@@ -55,38 +49,35 @@ export default function ContractPage() {
         return u.toString();
       };
 
-      setDsaSrc(withParams(DSA_BASE));
-      setW9Src(withParams(W9_BASE));
-      setUrlsReady(true);
+      const dsaUrl = addParams(DSA_BASE);
+      const w9Url  = addParams(W9_BASE);
+
+      // Inject the exact embed markup DocuSeal expects.
+      containerRef.current!.innerHTML = `
+        <section style="margin-bottom:48px">
+          <h2>Direct Seller Agreement</h2>
+          <docuseal-form
+            data-src="${dsaUrl}"
+            style="display:block;width:100%;min-height:800px;border:none"
+          ></docuseal-form>
+        </section>
+
+        <section>
+          <h2>W-9 Form</h2>
+          <docuseal-form
+            data-src="${w9Url}"
+            style="display:block;width:100%;min-height:800px;border:none"
+          ></docuseal-form>
+        </section>
+      `;
     })();
-  }, []);
+  }, [booted]);
 
   return (
     <main style={{ maxWidth: 900, margin: "40px auto" }}>
       <h1>Documents</h1>
-
-      {!(ready && urlsReady) && <p>Loading forms…</p>}
-
-      {ready && urlsReady && (
-        <>
-          <section style={{ marginBottom: 48 }}>
-            <h2>Direct Seller Agreement</h2>
-            {/* IMPORTANT: Do not change data-src after first render */}
-            <docuseal-form
-              data-src={dsaSrc!}
-              style={{ display: "block", width: "100%", minHeight: 800, border: "none" }}
-            ></docuseal-form>
-          </section>
-
-          <section>
-            <h2>W-9 Form</h2>
-            <docuseal-form
-              data-src={w9Src!}
-              style={{ display: "block", width: "100%", minHeight: 800, border: "none" }}
-            ></docuseal-form>
-          </section>
-        </>
-      )}
+      {!booted && <p>Loading forms…</p>}
+      <div ref={containerRef} />
     </main>
   );
 }
