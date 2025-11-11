@@ -3,17 +3,15 @@
 import { useEffect, useState } from "react";
 
 export default function ContractPage() {
-  const [me, setMe] = useState<{ email: string; userId: string; name?: string } | null>(null);
-  const FORM_URL = "https://www.docuseal.com/s/REPLACE_WITH_FORM_ID"; // <-- paste your DocuSeal form URL here
+  const [me, setMe] = useState<{ email: string } | null>(null);
 
   useEffect(() => {
     (async () => {
-      // Adjust this if your /api/me shape is different
       const r = await fetch("/api/me", { cache: "no-store" });
       const j = await r.json();
-      setMe({ email: j.email, userId: j.userId, name: j.name });
+      setMe({ email: j.email });
 
-      // Load DocuSeal embed script (adds <docuseal-form/> custom element)
+      // load DocuSeal embed script
       const s = document.createElement("script");
       s.src = "https://cdn.docuseal.com/js/form.js";
       s.async = true;
@@ -22,22 +20,39 @@ export default function ContractPage() {
     })();
   }, []);
 
-  return (
-    <main style={{ maxWidth: 960, margin: "40px auto" }}>
-      <h1>Contractor Agreement</h1>
-      <p>Sign your independent contractor agreement below.</p>
+  if (!me) {
+    return (
+      <main style={{ maxWidth: 900, margin: "40px auto" }}>
+        <h1>Documents</h1>
+        <p>Loading your info…</p>
+      </main>
+    );
+  }
 
-      {!me ? (
-        <p>Loading…</p>
-      ) : (
-        // The DocuSeal embed. Many forms accept an `email` attribute; keep it to help recipient mapping.
-        // If your template has a required email field, this helps prefill it.
+  return (
+    <main style={{ maxWidth: 900, margin: "40px auto" }}>
+      <h1>Documents</h1>
+      <p>Complete both of the following forms:</p>
+
+      {/* Direct Seller Agreement */}
+      <section style={{ marginBottom: 50 }}>
+        <h2>Direct Seller Agreement</h2>
         <docuseal-form
-          url={FORM_URL}
+          url="https://docuseal.com/d/9k7XDpbubLzDho"
           email={me.email}
           style={{ display: "block", width: "100%", minHeight: 780 }}
         />
-      )}
+      </section>
+
+      {/* W-9 Form */}
+      <section>
+        <h2>W-9 Form</h2>
+        <docuseal-form
+          url="https://docuseal.com/d/5gcuQfA4DStfea"
+          email={me.email}
+          style={{ display: "block", width: "100%", minHeight: 780 }}
+        />
+      </section>
     </main>
   );
 }
