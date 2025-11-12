@@ -29,14 +29,8 @@ export async function POST(req: Request) {
     }
   )
 
-  const { error } = await supabase.auth.setSession({
-    access_token,
-    refresh_token,
-  })
-
-  if (error) {
-    return new NextResponse(error.message, { status: 401 })
-  }
+  const { error } = await supabase.auth.setSession({ access_token, refresh_token })
+  if (error) return new NextResponse(error.message, { status: 401 })
 
   return res
 }
