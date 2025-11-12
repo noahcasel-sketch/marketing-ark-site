@@ -20,8 +20,7 @@ export default function LoginPage() {
     setSending(true)
 
     try {
-      const siteUrl =
-        process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
       const redirectTo = `${siteUrl}/auth/callback`
 
       const { error } = await supabase.auth.signInWithOtp({
@@ -52,7 +51,7 @@ export default function LoginPage() {
               className="w-full border rounded-xl p-3"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@marketing-ark.com"
+              placeholder="your email"
               required
             />
           </div>
