@@ -11,42 +11,48 @@ const supabase = createClient(
 
 export default function AuthCallbackPage() {
   const router = useRouter()
-  const [error, setError] = useState<string | null>(null)
+  const [msg, setMsg] = useState('Signing you in…')
 
   useEffect(() => {
     const run = async () => {
-      // Handle magic-link fragment: #access_token=...&refresh_token=...
-      const { data, error } = await supabase.auth.getSessionFromUrl({
-        storeSession: false, // we'll store it on the server instead
-      })
-      if (error) {
-        setError(error.message)
-        return
-      }
-      const session = data?.session
-      if (!session) {
-        setError('No session found in callback URL.')
-        return
-      }
+      try {
+        // If the URL has a hash (#access_token=...), read it and extract a session:
+        if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
+          const { data, error } = await supabase.auth.getSessionFromUrl({ storeSession: false })
+          if (error) throw error
+          const session = data?.session
+          if (!session) throw new Error('No session in callback URL')
 
-      // Send tokens to the server to set HttpOnly cookies
-      const resp = await fetch('/api/auth/set', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        }),
-      })
+          // Send tokens to the server to set HttpOnly cookies
+          const resp = await fetch('/api/auth/set-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              access_token: session.access_token,
+              refresh_token: session.refresh_token,
+            }),
+          })
+          if (!resp.ok) throw new Error(await resp.text())
 
-      if (!resp.ok) {
-        const msg = await resp.text()
-        setError(msg || 'Failed to set session on server')
-        return
+          // Good to go
+          router.replace('/portal') // change to '/region' or '/' if you prefer
+          return
+        }
+
+        // No hash present: if the server already has a session cookie, skip ahead.
+        const status = await fetch('/auth/status', { cache: 'no-store' })
+        const j = await status.json().catch(() => ({}))
+        if (j?.email) {
+          router.replace('/portal')
+          return
+        }
+
+        // Still no session → send them to login
+        setMsg('No active session found. Redirecting to login…')
+        setTimeout(() => router.replace('/login?error=no_session'), 800)
+      } catch (err: any) {
+        setMsg(`Sign-in error: ${err?.message || String(err)}`)
       }
-
-      // All good — go to your post-login page
-      router.replace('/portal') // change to '/region' or '/' if you prefer
     }
 
     run()
@@ -54,9 +60,8 @@ export default function AuthCallbackPage() {
 
   return (
     <div className="container" style={{ paddingTop: 80 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Signing you in…</h1>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>{msg}</h1>
       <p>If this takes more than a couple seconds, refresh the page.</p>
-      {error && <p style={{ color: '#ff6b6b', marginTop: 12 }}>{error}</p>}
     </div>
   )
 }
