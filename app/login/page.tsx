@@ -13,53 +13,62 @@ export default function LoginPage() {
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
-    setSending(true)
-    try {
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
-      const redirectTo = `${siteUrl}/auth/callback`
-      const { error } = await supabase.auth.signInWithOtp({
+    setInfo(null)
+    setSent(false)
+
+    // pre-check with our API
+    const res = await fetch('/api/auth/check-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    })
+    const j = await res.json()
+
+    if (j.status === 'approved') {
+      setSending(true)
+      const { error: otpErr } = await supabase.auth.signInWithOtp({
         email,
-        options: { emailRedirectTo: redirectTo },
+        options: { emailRedirectTo: `${window.location.origin}/auth/callback` }
       })
-      if (error) setError(error.message)
-      else setSent(true)
-    } finally {
       setSending(false)
+      if (otpErr) setError(otpErr.message)
+      else setSent(true)
+    } else if (j.status === 'pending') {
+      setInfo('This email is pending approval.')
+    } else if (j.status === 'not_found') {
+      setInfo('This email is not recognized in our database.')
+    } else {
+      setError(j.error || 'Unexpected error.')
     }
   }
 
   return (
-    <div className="container" style={{ paddingTop: 80 }}>
-      <div style={{ maxWidth: 520, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 40, fontWeight: 800, marginBottom: 24 }}>Sign in</h1>
-
-        {sent ? (
-          <p>Check <b>{email}</b> for your sign-in link. (It can take a minute—check spam.)</p>
-        ) : (
-          <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
-            <label className="label" htmlFor="email">Email</label>
-            <input
-              id="email"
-              type="email"
-              className="input"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your email"
-              required
-            />
-
-            {error && <p style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</p>}
-
-            <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content' }}>
-              {sending ? 'Sending…' : 'Send magic link'}
-            </button>
-          </form>
-        )}
-      </div>
-    </div>
+    <main style={{ maxWidth: 520, margin: '64px auto' }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Rep login</h1>
+      {sent ? (
+        <p>Check your email for the sign-in link.</p>
+      ) : (
+        <form onSubmit={onSubmit} className="card" style={{ padding: 16 }}>
+          <input
+            type="email"
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="your email"
+            required
+          />
+          {info && <p style={{ color: '#666', fontSize: 14 }}>{info}</p>}
+          {error && <p style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</p>}
+          <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content' }}>
+            {sending ? 'Sending…' : 'Send magic link'}
+          </button>
+        </form>
+      )}
+    </main>
   )
 }
