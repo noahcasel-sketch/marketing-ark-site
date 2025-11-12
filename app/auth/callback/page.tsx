@@ -1,48 +1,49 @@
-'use client';
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+// app/auth/callback/route.ts
+import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
 
-export default function AuthCallback() {
-  const router = useRouter();
+export const dynamic = 'force-dynamic'
 
-  useEffect(() => {
-    const run = async () => {
-      // Parse the hash fragment from the URL
-      const hash = window.location.hash; // "#access_token=...&refresh_token=..."
-      const params = new URLSearchParams(hash.slice(1));
+export async function GET(req: Request) {
+  const url = new URL(req.url)
+  const code = url.searchParams.get('code')
 
-      const access_token = params.get('access_token');
-      const refresh_token = params.get('refresh_token');
+  const redirectUrl = new URL('/portal', url)
+  if (!code) {
+    const back = new URL('/login', url)
+    back.searchParams.set('error', 'missing_code')
+    return NextResponse.redirect(back)
+  }
 
-      if (!access_token || !refresh_token) {
-        router.replace('/login?error=missing_tokens');
-        return;
-      }
+  // Create the response we'll return (cookies will be written onto this)
+  const res = NextResponse.redirect(redirectUrl)
 
-      // Ask the server to set the Supabase auth cookies
-      const res = await fetch('/api/auth/set-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token, refresh_token }),
-        credentials: 'include',
-      });
+  const cookieStore = cookies()
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          res.cookies.set({ name, value, ...options })
+        },
+        remove(name: string, options: CookieOptions) {
+          res.cookies.set({ name, value: '', ...options })
+        },
+      },
+    }
+  )
 
-      if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: 'server_error' }));
-        router.replace(`/login?error=${encodeURIComponent(error || 'server_error')}`);
-        return;
-      }
+  const { error } = await supabase.auth.exchangeCodeForSession(code)
+  if (error) {
+    const back = new URL('/login', url)
+    back.searchParams.set('error', error.message)
+    return NextResponse.redirect(back)
+  }
 
-      // Server cookie is set — go to the portal
-      router.replace('/portal');
-    };
-
-    run();
-  }, [router]);
-
-  return (
-    <main style={{ padding: 32 }}>
-      <h2>Signing you in…</h2>
-    </main>
-  );
+  return res
 }
