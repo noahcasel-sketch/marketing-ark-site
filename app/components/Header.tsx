@@ -24,31 +24,29 @@ export default async function Header() {
   const canSeeCompany = user?.email === OWNER_EMAIL
 
   return (
-    <header>
-      <div className="container">
-        <div className="nav">
-          {/* Left: brand */}
-          <div className="brand">
-            <span className="logo" />
-            <Link href="/">Marketing-ARK</Link>
-          </div>
+    <header className="header">
+      <div className="header-inner">
+        {/* Left: brand */}
+        <div className="brand">
+          <span className="logo" />
+          <Link href="/">Marketing-ARK</Link>
+        </div>
 
-          {/* Right: role-aware links + auth */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {canSeeRegion && <Link href="/region">Region</Link>}
-            {canSeeCompany && <Link href="/company">Company</Link>}
+        {/* Right: role-aware links + auth */}
+        <div className="header-actions">
+          {canSeeRegion && <Link href="/region" className="header-link">Region</Link>}
+          {canSeeCompany && <Link href="/company" className="header-link">Company</Link>}
 
-            {!user?.email ? (
-              <Link href="/login" className="btn">Rep Login</Link>
-            ) : (
-              <>
-                <span style={{ opacity: 0.8, fontSize: 14 }}>{user.email}</span>
-                <form action="/logout" method="post" style={{ display: 'inline' }}>
-                  <button type="submit" className="btn">Logout</button>
-                </form>
-              </>
-            )}
-          </div>
+          {!user?.email ? (
+            <Link href="/login" className="btn btn-pill">Rep Login</Link>
+          ) : (
+            <>
+              <span className="user-email">{user.email}</span>
+              <form action="/logout" method="post" style={{ display: 'inline' }}>
+                <button type="submit" className="btn btn-pill">Logout</button>
+              </form>
+            </>
+          )}
         </div>
       </div>
     </header>
