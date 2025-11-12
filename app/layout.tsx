@@ -11,9 +11,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh bg-gray-50">
+      <body>
         <Header />
-        <main className="max-w-6xl mx-auto px-4 py-6">
+        {/* Body matches header width via the .container class */}
+        <main className="container" style={{ paddingTop: 32, paddingBottom: 56 }}>
           {children}
         </main>
       </body>
