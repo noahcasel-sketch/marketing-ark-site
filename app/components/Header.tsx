@@ -8,15 +8,13 @@ const OWNER_EMAIL = 'noahcasel@marketing-ark.com'
 
 export default async function Header() {
   const supabase = supabaseServer()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
 
   let hasRegion = false
   if (user?.email) {
     const { data: region } = await supabase
       .from('regions')
-      .select('code, name')
+      .select('code')
       .eq('manager_email', user.email)
       .maybeSingle()
     hasRegion = !!region
@@ -26,46 +24,30 @@ export default async function Header() {
   const canSeeCompany = user?.email === OWNER_EMAIL
 
   return (
-    <header className="border-b bg-white/70 backdrop-blur sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-6">
-          <Link href="/" className="font-semibold text-lg">
-            Marketing-ARK
-          </Link>
-          <nav className="hidden sm:flex items-center gap-4 text-sm">
-            <Link href="/onboarding" className="hover:underline">
-              Onboarding
-            </Link>
-            {canSeeRegion && (
-              <Link href="/region" className="hover:underline">
-                Region
-              </Link>
+    <header>
+      <div className="container">
+        <div className="nav">
+          <div className="brand">
+            <span className="logo" />
+            <Link href="/">Marketing-ARK</Link>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <Link href="/onboarding">Onboarding</Link>
+            {canSeeRegion && <Link href="/region">Region</Link>}
+            {canSeeCompany && <Link href="/company">Company</Link>}
+
+            {!user?.email ? (
+              <Link href="/login" className="btn">Rep Login</Link>
+            ) : (
+              <>
+                <span style={{ opacity: 0.8, fontSize: 14 }}>{user.email}</span>
+                <form action="/logout" method="post" style={{ display: 'inline' }}>
+                  <button type="submit" className="btn">Logout</button>
+                </form>
+              </>
             )}
-            {canSeeCompany && (
-              <Link href="/company" className="hover:underline">
-                Company
-              </Link>
-            )}
-          </nav>
-        </div>
-        <div className="flex items-center gap-3">
-          {!user?.email ? (
-            <Link href="/login" className="px-3 py-1.5 rounded-xl border">
-              Rep Login
-            </Link>
-          ) : (
-            <>
-              <span className="text-sm hidden sm:inline">{user.email}</span>
-              <form action="/logout" method="post">
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded-xl bg-black text-white"
-                >
-                  Logout
-                </button>
-              </form>
-            </>
-          )}
+          </div>
         </div>
       </div>
     </header>
