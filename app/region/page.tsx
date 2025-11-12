@@ -6,13 +6,11 @@ export const revalidate = 0
 
 export default async function RegionPage() {
   const supabase = supabaseServer()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
 
   if (!user?.email) {
     return (
-      <div className="max-w-3xl mx-auto py-12">
+      <div className="container" style={{ paddingTop: 48 }}>
         Please sign in to view your region.
       </div>
     )
@@ -26,7 +24,7 @@ export default async function RegionPage() {
 
   if (!region) {
     return (
-      <div className="max-w-3xl mx-auto py-12">
+      <div className="container" style={{ paddingTop: 48 }}>
         No region is associated with <b>{user.email}</b>.
       </div>
     )
@@ -50,38 +48,25 @@ export default async function RegionPage() {
   )
 
   return (
-    <div className="max-w-5xl mx-auto py-10">
-      <h1 className="text-3xl font-semibold mb-6">
+    <div className="container" style={{ paddingTop: 48 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>
         Region: {region.name} ({region.code})
       </h1>
+
       {withSigned.length === 0 ? (
         <p>No reps yet.</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid">
           {withSigned.map((rep: any) => (
-            <div key={rep.id} className="border rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold">
+            <div key={rep.id} className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontWeight: 600 }}>
                   {rep.legal_first_name} {rep.legal_last_name}
                 </div>
-                <div className="text-sm opacity-70">
+                <div style={{ opacity: 0.7, fontSize: 12 }}>
                   {new Date(rep.created_at).toLocaleString()}
                 </div>
               </div>
-              <div className="text-sm">Email: {rep.email}</div>
-              <div className="text-sm">Phone: {rep.phone}</div>
-              <div className="text-sm">Address: {rep.address}</div>
-              {rep.id_url && (
-                <div className="mt-3">
-                  <a className="underline" href={rep.id_url} target="_blank">
-                    View ID
-                  </a>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
+              <div className="row"><b>Email:</b> {rep.email}</div>
+              <div className="row"><b>Phone:</b> {rep.phone}</div>
+              <div className="row"><b>Address:</b> {rep.address}</
