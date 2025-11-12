@@ -1,5 +1,5 @@
-import { supabaseServer } from '@/lib/supabaseServer'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { supabaseServer } from '../../lib/supabaseServer'
+import { supabaseAdmin } from '../../lib/supabaseAdmin'
 
 const OWNER_EMAIL = 'noahcasel@marketing-ark.com'
 
@@ -52,3 +52,4 @@ export default async function CompanyPage() {
     </div>
   )
 }
+
