@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { supabaseAdmin } from "../../lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
@@ -32,3 +32,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
+
