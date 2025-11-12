@@ -1,3 +1,4 @@
+// app/components/Header.tsx
 import Link from 'next/link'
 import { supabaseServer } from '../../lib/supabaseServer'
 
@@ -26,13 +27,11 @@ export default async function Header() {
   return (
     <header className="header">
       <div className="header-inner">
-        {/* Left: brand */}
         <div className="brand">
           <span className="logo" />
           <Link href="/">Marketing-ARK</Link>
         </div>
 
-        {/* Right: role-aware links + auth */}
         <div className="header-actions">
           {canSeeRegion && <Link href="/region" className="header-link">Region</Link>}
           {canSeeCompany && <Link href="/company" className="header-link">Company</Link>}
