@@ -1,5 +1,5 @@
-import { supabaseServer } from '@/lib/supabaseServer'
-import { supabaseAdmin } from '@/lib/supabaseAdmin'
+import { supabaseServer } from '../../lib/supabaseServer'
+import { supabaseAdmin } from '../../lib/supabaseAdmin'
 
 export default async function RegionPage() {
   const supabase = supabaseServer()
@@ -63,3 +63,4 @@ export default async function RegionPage() {
     </div>
   )
 }
+
