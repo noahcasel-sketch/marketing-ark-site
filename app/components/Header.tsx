@@ -1,5 +1,8 @@
+// app/components/Header.tsx
 import Link from 'next/link'
 import { supabaseServer } from '../../lib/supabaseServer'
+
+export const dynamic = 'force-dynamic'
 
 const OWNER_EMAIL = 'noahcasel@marketing-ark.com'
 
@@ -8,7 +11,6 @@ export default async function Header() {
   const { data: { user } } = await supabase.auth.getUser()
   const email = user?.email?.toLowerCase() || null
 
-  // Does this user manage a region?
   let hasRegion = false
   if (email) {
     const { data: region } = await supabase
