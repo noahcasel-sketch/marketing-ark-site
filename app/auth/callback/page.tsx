@@ -1,19 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 
 function parseHashTokens(hash: string) {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash
   const p = new URLSearchParams(raw)
-  const access_token = p.get('access_token')
-  const refresh_token = p.get('refresh_token')
-  const error_description = p.get('error_description')
-  return { access_token, refresh_token, error_description }
+  return {
+    access_token: p.get('access_token'),
+    refresh_token: p.get('refresh_token'),
+    error_description: p.get('error_description'),
+  }
 }
 
 export default function AuthCallbackPage() {
-  const router = useRouter()
   const [msg, setMsg] = useState('Signing you in…')
 
   useEffect(() => {
@@ -21,7 +20,7 @@ export default function AuthCallbackPage() {
       try {
         const url = new URL(window.location.href)
 
-        // 1) HASH FLOW (#access_token=...&refresh_token=...)
+        // 1) HASH FLOW: #access_token=...&refresh_token=...
         if (window.location.hash && window.location.hash.length > 1) {
           const { access_token, refresh_token, error_description } = parseHashTokens(window.location.hash)
           if (error_description) throw new Error(error_description)
@@ -35,11 +34,12 @@ export default function AuthCallbackPage() {
           })
           if (!resp.ok) throw new Error(await resp.text())
 
-          router.replace('/portal') // change to '/region' or '/' if you prefer
+          // full reload so SSR header picks up the new cookies immediately
+          window.location.replace('/portal') // change to '/region' or '/' if you prefer
           return
         }
 
-        // 2) PKCE FLOW (?code=...)
+        // 2) PKCE FLOW: ?code=...
         const code = url.searchParams.get('code')
         if (code) {
           const resp = await fetch('/api/auth/exchange-code', {
@@ -50,27 +50,27 @@ export default function AuthCallbackPage() {
           })
           if (!resp.ok) throw new Error(await resp.text())
 
-          router.replace('/portal')
+          window.location.replace('/portal') // full reload
           return
         }
 
-        // 3) If neither present, see if we already have a cookie session:
+        // 3) No hash/code: if server already has a session, continue
         const status = await fetch('/auth/status', { cache: 'no-store' })
         const j = await status.json().catch(() => ({}))
         if (j?.email) {
-          router.replace('/portal')
+          window.location.replace('/portal')
           return
         }
 
-        // 4) Nothing worked → go to login
+        // 4) Otherwise send them to login
         setMsg('No active session found. Redirecting to login…')
-        setTimeout(() => router.replace('/login?error=no_session'), 800)
+        setTimeout(() => (window.location.href = '/login?error=no_session'), 600)
       } catch (err: any) {
         setMsg(`Sign-in error: ${err?.message || String(err)}`)
       }
     }
     run()
-  }, [router])
+  }, [])
 
   return (
     <div className="container" style={{ paddingTop: 80 }}>
