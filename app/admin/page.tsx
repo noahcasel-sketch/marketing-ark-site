@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import InviteForm from "./InviteForm";
-import { createClient } from "../../lib/supabaseServer";
+import { supabaseServer } from "../../lib/supabaseServer";
 
 export default async function AdminPage() {
-  const supabase = createClient();
+  const supabase = supabaseServer();
   const { data: { user } } = await supabase.auth.getUser();
 
   // Must be logged in
@@ -28,3 +28,4 @@ export default async function AdminPage() {
     </main>
   );
 }
+
