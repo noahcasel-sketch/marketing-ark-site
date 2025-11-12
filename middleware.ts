@@ -1,34 +1,18 @@
 // middleware.ts
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-const CANONICAL_HOST = "www.marketing-ark.com";
+// Force everything to www so auth cookies are always on the same host
+const CANONICAL_HOST = 'www.marketing-ark.com'
 
 export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // ✅ Allow all API routes and webhooks to pass through (no redirects)
-  if (
-    pathname.startsWith("/api/") || 
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/static") ||
-    pathname === "/favicon.ico"
-  ) {
-    return NextResponse.next();
+  const { hostname } = req.nextUrl
+  if (hostname !== CANONICAL_HOST) {
+    const url = req.nextUrl.clone()
+    url.hostname = CANONICAL_HOST
+    return NextResponse.redirect(url, 308)
   }
-
-  // ✅ Redirect apex domain (marketing-ark.com) → canonical (www.marketing-ark.com)
-  if (req.nextUrl.hostname === "marketing-ark.com") {
-    const url = req.nextUrl.clone();
-    url.hostname = CANONICAL_HOST;
-    return NextResponse.redirect(url, 308);
-  }
-
-  // Default: just continue
-  return NextResponse.next();
+  return NextResponse.next()
 }
 
-// Apply to all routes
-export const config = {
-  matcher: ["/:path*"],
-};
+export const config = { matcher: '/:path*' }
