@@ -8,9 +8,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
-
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
@@ -44,8 +41,7 @@ export default function LoginPage() {
 
       {sent ? (
         <p>
-          Check <b>{email}</b> for your sign-in link. (It can take a minute—
-          check spam.)
+          Check <b>{email}</b> for your sign-in link. (It can take a minute—check spam.)
         </p>
       ) : (
         <form onSubmit={onSubmit} className="space-y-4">
