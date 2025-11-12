@@ -35,34 +35,29 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="max-w-md mx-auto py-16">
-      <h1 className="text-3xl font-semibold mb-4">Sign in</h1>
+    <div className="container" style={{ paddingTop: 64 }}>
+      <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 16 }}>Sign in</h1>
 
       {sent ? (
         <p>
           Check <b>{email}</b> for your sign-in link. (It can take a minute—check spam.)
         </p>
       ) : (
-        <form onSubmit={onSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              type="email"
-              className="w-full border rounded-xl p-3"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your email"
-              required
-            />
-          </div>
+        <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, maxWidth: 480 }}>
+          <label className="label" htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            className="input"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="your email"
+            required
+          />
 
-          {error && <p className="text-red-600 text-sm">{error}</p>}
+          {error && <p style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</p>}
 
-          <button
-            type="submit"
-            disabled={sending}
-            className="px-5 py-3 rounded-xl bg-black text-white disabled:opacity-60"
-          >
+          <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content' }}>
             {sending ? 'Sending…' : 'Send magic link'}
           </button>
         </form>
