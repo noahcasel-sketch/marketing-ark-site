@@ -1,49 +1,62 @@
-// app/auth/callback/route.ts
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+'use client'
 
-export const dynamic = 'force-dynamic'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@supabase/supabase-js'
 
-export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const code = url.searchParams.get('code')
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
-  const redirectUrl = new URL('/portal', url)
-  if (!code) {
-    const back = new URL('/login', url)
-    back.searchParams.set('error', 'missing_code')
-    return NextResponse.redirect(back)
-  }
+export default function AuthCallbackPage() {
+  const router = useRouter()
+  const [error, setError] = useState<string | null>(null)
 
-  // Create the response we'll return (cookies will be written onto this)
-  const res = NextResponse.redirect(redirectUrl)
+  useEffect(() => {
+    const run = async () => {
+      // Handle magic-link fragment: #access_token=...&refresh_token=...
+      const { data, error } = await supabase.auth.getSessionFromUrl({
+        storeSession: false, // we'll store it on the server instead
+      })
+      if (error) {
+        setError(error.message)
+        return
+      }
+      const session = data?.session
+      if (!session) {
+        setError('No session found in callback URL.')
+        return
+      }
 
-  const cookieStore = cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          res.cookies.set({ name, value, ...options })
-        },
-        remove(name: string, options: CookieOptions) {
-          res.cookies.set({ name, value: '', ...options })
-        },
-      },
+      // Send tokens to the server to set HttpOnly cookies
+      const resp = await fetch('/api/auth/set', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }),
+      })
+
+      if (!resp.ok) {
+        const msg = await resp.text()
+        setError(msg || 'Failed to set session on server')
+        return
+      }
+
+      // All good — go to your post-login page
+      router.replace('/portal') // change to '/region' or '/' if you prefer
     }
+
+    run()
+  }, [router])
+
+  return (
+    <div className="container" style={{ paddingTop: 80 }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Signing you in…</h1>
+      <p>If this takes more than a couple seconds, refresh the page.</p>
+      {error && <p style={{ color: '#ff6b6b', marginTop: 12 }}>{error}</p>}
+    </div>
   )
-
-  const { error } = await supabase.auth.exchangeCodeForSession(code)
-  if (error) {
-    const back = new URL('/login', url)
-    back.searchParams.set('error', error.message)
-    return NextResponse.redirect(back)
-  }
-
-  return res
 }
