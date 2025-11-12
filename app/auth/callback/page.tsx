@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+function parseHashTokens(hash: string) {
+  const raw = hash.startsWith('#') ? hash.slice(1) : hash
+  const p = new URLSearchParams(raw)
+  const access_token = p.get('access_token')
+  const refresh_token = p.get('refresh_token')
+  const error_description = p.get('error_description')
+  return { access_token, refresh_token, error_description }
+}
 
 export default function AuthCallbackPage() {
   const router = useRouter()
@@ -16,30 +19,42 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const run = async () => {
       try {
-        // If the URL has a hash (#access_token=...), read it and extract a session:
-        if (typeof window !== 'undefined' && window.location.hash.includes('access_token')) {
-          const { data, error } = await supabase.auth.getSessionFromUrl({ storeSession: false })
-          if (error) throw error
-          const session = data?.session
-          if (!session) throw new Error('No session in callback URL')
+        const url = new URL(window.location.href)
 
-          // Send tokens to the server to set HttpOnly cookies
+        // 1) HASH FLOW (#access_token=...&refresh_token=...)
+        if (window.location.hash && window.location.hash.length > 1) {
+          const { access_token, refresh_token, error_description } = parseHashTokens(window.location.hash)
+          if (error_description) throw new Error(error_description)
+          if (!access_token || !refresh_token) throw new Error('Missing tokens in callback hash')
+
           const resp = await fetch('/api/auth/set-session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              access_token: session.access_token,
-              refresh_token: session.refresh_token,
-            }),
+            body: JSON.stringify({ access_token, refresh_token }),
+            cache: 'no-store',
           })
           if (!resp.ok) throw new Error(await resp.text())
 
-          // Good to go
           router.replace('/portal') // change to '/region' or '/' if you prefer
           return
         }
 
-        // No hash present: if the server already has a session cookie, skip ahead.
+        // 2) PKCE FLOW (?code=...)
+        const code = url.searchParams.get('code')
+        if (code) {
+          const resp = await fetch('/api/auth/exchange-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+            cache: 'no-store',
+          })
+          if (!resp.ok) throw new Error(await resp.text())
+
+          router.replace('/portal')
+          return
+        }
+
+        // 3) If neither present, see if we already have a cookie session:
         const status = await fetch('/auth/status', { cache: 'no-store' })
         const j = await status.json().catch(() => ({}))
         if (j?.email) {
@@ -47,14 +62,13 @@ export default function AuthCallbackPage() {
           return
         }
 
-        // Still no session → send them to login
+        // 4) Nothing worked → go to login
         setMsg('No active session found. Redirecting to login…')
         setTimeout(() => router.replace('/login?error=no_session'), 800)
       } catch (err: any) {
         setMsg(`Sign-in error: ${err?.message || String(err)}`)
       }
     }
-
     run()
   }, [router])
 
