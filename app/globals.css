@@ -13,3 +13,58 @@ a { color: inherit; text-decoration: none; }
 .footer { opacity:0.8; font-size:14px; padding:40px 0; }
 .input { width:100%; padding:12px 14px; border-radius:10px; border:1px solid #2a3552; background:#0d1422; color:var(--text); }
 .label { font-size:14px; color:var(--muted); margin-bottom:8px; display:block; }
+
+/* ===== Header polish (full-bleed, edges) ===== */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  width: 100%;
+  backdrop-filter: blur(10px);
+  background: color-mix(in oklab, var(--bg) 85%, black 15%);
+  border-bottom: 1px solid #1b2336;
+}
+.header-inner {
+  /* full width with comfy padding to edges */
+  width: 100%;
+  padding: 14px 28px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+@media (min-width: 1280px) {
+  .header-inner { padding: 18px 40px; }
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.header-link {
+  color: var(--text);
+  opacity: .85;
+  transition: opacity .15s ease;
+}
+.header-link:hover { opacity: 1; }
+
+/* rounder, nicer header buttons */
+.btn-pill {
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: #091018;
+  font-weight: 700;
+  border: none;
+}
+.user-email {
+  font-size: 14px;
+  opacity: .85;
+}
+
+/* Inputs + cards slight polish (keeps your base look) */
+.input { transition: border-color .15s ease, box-shadow .15s ease; }
+.input:focus { outline: none; border-color: #4aa8ff; box-shadow: 0 0 0 3px rgba(57,189,248,.18); }
+.card { box-shadow: 0 4px 18px rgba(0,0,0,.25); }
