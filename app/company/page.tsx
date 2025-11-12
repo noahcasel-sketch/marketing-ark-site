@@ -1,133 +1,123 @@
 // app/company/page.tsx
-import { supabaseServer } from '../../lib/supabaseServer'
-import { supabaseAdmin } from '../../lib/supabaseAdmin'
+import ApproveButton from "../region/ApproveButton";
+import { supabaseServer } from "../../lib/supabaseServer";
+import { supabaseAdmin } from "../../lib/supabaseAdmin";
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-const OWNER_EMAIL = 'noahcasel@marketing-ark.com'
+const OWNER_EMAIL = "noahcasel@marketing-ark.com";
 
-type Rep = {
-  id: string
-  created_at: string
-  region_code: string
-  legal_first_name: string
-  legal_last_name: string
-  email: string
-  phone: string
-  address: string
-  id_photo_path: string | null
-}
+type RegionCode = "ARK" | "AKM" | "HC";
+type RepRow = {
+  id: string;
+  created_at: string;
+  region_code: RegionCode;
+  legal_first_name: string;
+  legal_last_name: string;
+  email: string;
+  phone: string | null;
+  address: string | null;
+  id_photo_path: string | null;
+};
 
-type Region = {
-  code: string
-  name: string
-}
+const REGION_NAMES: Record<RegionCode, string> = {
+  ARK: "ARK",
+  AKM: "AK Marketing",
+  HC: "HC",
+};
 
-export default async function CompanyPage() {
-  const supabase = supabaseServer()
-  const { data: { user } } = await supabase.auth.getUser()
+export default async function CompanyAdminPage() {
+  const supabase = supabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user?.email) {
     return (
-      <div className="container" style={{ paddingTop: 48 }}>
-        Please sign in.
-      </div>
-    )
+      <main style={{ maxWidth: 980, margin: "48px auto" }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Company — Pending Approvals</h1>
+        <p>Please <a href="/login">log in</a> to view this page.</p>
+      </main>
+    );
   }
-  if (user.email !== OWNER_EMAIL) {
+
+  if (user.email.toLowerCase() !== OWNER_EMAIL) {
     return (
-      <div className="container" style={{ paddingTop: 48 }}>
-        Access denied.
-      </div>
-    )
+      <main style={{ maxWidth: 980, margin: "48px auto" }}>
+        <p>Not authorized.</p>
+      </main>
+    );
   }
 
-  // Fetch all reps (RLS allows owner to see all)
-  const { data: reps, error: repsErr } = await supabase
-    .from('reps')
-    .select('*')
-    .order('created_at', { ascending: false })
+  // load all pending
+  const { data: pending, error } = await supabaseAdmin
+    .from("pending_reps")
+    .select(
+      "id, created_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
+    )
+    .order("submitted_at", { ascending: false });
 
-  if (repsErr) {
+  if (error) {
     return (
-      <div className="container" style={{ paddingTop: 48 }}>
-        Error loading reps: {repsErr.message}
-      </div>
-    )
+      <main style={{ maxWidth: 980, margin: "48px auto" }}>
+        <p>Error loading pending reps: {error.message}</p>
+      </main>
+    );
   }
 
-  // Fetch regions and build a code->name map (owner can read all regions)
-  const { data: regions } = await supabase
-    .from('regions')
-    .select('code,name')
-
-  const regionNameByCode: Record<string, string> = {}
-  for (const r of (regions || []) as Region[]) {
-    regionNameByCode[r.code] = r.name
-  }
-
-  // Create signed URLs for ID photos
-  const withSigned: (Rep & { id_url: string | null; region_name: string })[] = []
-  for (const r of (reps || []) as Rep[]) {
-    let id_url: string | null = null
+  // sign ID URLs
+  const enriched: (RepRow & { id_url: string | null })[] = [];
+  for (const r of (pending || []) as RepRow[]) {
+    let id_url: string | null = null;
     if (r.id_photo_path) {
       const { data } = await supabaseAdmin
         .storage
-        .from('id-photos')
-        .createSignedUrl(r.id_photo_path, 60 * 5)
-      id_url = data?.signedUrl ?? null
+        .from("id-photos")
+        .createSignedUrl(r.id_photo_path, 60 * 5);
+      id_url = data?.signedUrl ?? null;
     }
-    withSigned.push({
-      ...r,
-      id_url,
-      region_name: regionNameByCode[r.region_code] || r.region_code,
-    })
+    enriched.push({ ...r, id_url });
   }
 
   return (
-    <div className="container" style={{ paddingTop: 48 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>
-        Company View (All Regions)
-      </h1>
+    <main style={{ maxWidth: 980, margin: "48px auto" }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>Company — Pending Approvals</h1>
 
-      {withSigned.length === 0 ? (
-        <p>No reps yet.</p>
+      {(enriched || []).length === 0 ? (
+        <p>No pending reps.</p>
       ) : (
-        <div className="grid">
-          {withSigned.map((rep) => (
-            <div key={rep.id} className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: "grid", gap: 12 }}>
+          {enriched.map((r) => (
+            <div
+              key={r.id}
+              style={{
+                border: "1px solid #e5e7eb",
+                borderRadius: 12,
+                padding: 12,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div>
                 <div style={{ fontWeight: 600 }}>
-                  {rep.legal_first_name} {rep.legal_last_name}
+                  {r.legal_first_name} {r.legal_last_name} ({REGION_NAMES[r.region_code]})
                 </div>
-                <div style={{ opacity: 0.7, fontSize: 12 }}>
-                  {new Date(rep.created_at).toLocaleString()}
-                </div>
+                <div style={{ fontSize: 14 }}>{r.email}{r.phone ? ` · ${r.phone}` : ""}</div>
+                {r.address && <div style={{ fontSize: 14 }}>{r.address}</div>}
+                {r.id_url && (
+                  <div style={{ marginTop: 6 }}>
+                    <a href={r.id_url} target="_blank" rel="noreferrer">View ID</a>
+                  </div>
+                )}
               </div>
-
-              <div style={{ fontSize: 14, marginBottom: 4 }}>
-                <b>Region:</b> {rep.region_name} ({rep.region_code})
-              </div>
-              <div style={{ fontSize: 14, marginBottom: 4 }}>
-                <b>Email:</b> {rep.email}
-              </div>
-              <div style={{ fontSize: 14, marginBottom: 4 }}>
-                <b>Phone:</b> {rep.phone}
-              </div>
-              <div style={{ fontSize: 14, marginBottom: 4 }}>
-                <b>Address:</b> {rep.address}
-              </div>
-
-              {rep.id_url && (
-                <div style={{ marginTop: 8 }}>
-                  <a href={rep.id_url} target="_blank" rel="noreferrer">View ID</a>
-                </div>
-              )}
+              <ApproveButton id={r.id} />
             </div>
           ))}
         </div>
       )}
-    </div>
-  )
+    </main>
+  );
 }
