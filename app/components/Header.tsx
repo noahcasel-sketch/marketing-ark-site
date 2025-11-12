@@ -1,28 +1,26 @@
-// app/components/Header.tsx
 import Link from 'next/link'
 import { supabaseServer } from '../../lib/supabaseServer'
-
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
 
 const OWNER_EMAIL = 'noahcasel@marketing-ark.com'
 
 export default async function Header() {
   const supabase = supabaseServer()
   const { data: { user } } = await supabase.auth.getUser()
+  const email = user?.email?.toLowerCase() || null
 
+  // Does this user manage a region?
   let hasRegion = false
-  if (user?.email) {
+  if (email) {
     const { data: region } = await supabase
       .from('regions')
       .select('code')
-      .eq('manager_email', user.email)
+      .eq('manager_email', email)
       .maybeSingle()
     hasRegion = !!region
   }
 
-  const canSeeRegion = !!user?.email && (hasRegion || user.email === OWNER_EMAIL)
-  const canSeeCompany = user?.email === OWNER_EMAIL
+  const canSeeRegion = !!email && (hasRegion || email === OWNER_EMAIL)
+  const canSeeCompany = email === OWNER_EMAIL
 
   return (
     <header className="header">
@@ -36,11 +34,11 @@ export default async function Header() {
           {canSeeRegion && <Link href="/region" className="header-link">Region</Link>}
           {canSeeCompany && <Link href="/company" className="header-link">Company</Link>}
 
-          {!user?.email ? (
+          {!email ? (
             <Link href="/login" className="btn btn-pill">Rep Login</Link>
           ) : (
             <>
-              <span className="user-email">{user.email}</span>
+              <span className="user-email">{email}</span>
               <form action="/logout" method="post" style={{ display: 'inline' }}>
                 <button type="submit" className="btn btn-pill">Logout</button>
               </form>
