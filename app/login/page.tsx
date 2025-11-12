@@ -18,11 +18,9 @@ export default function LoginPage() {
     e.preventDefault()
     setError(null)
     setSending(true)
-
     try {
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
       const redirectTo = `${siteUrl}/auth/callback`
-
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: { emailRedirectTo: redirectTo },
@@ -35,33 +33,33 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="container" style={{ paddingTop: 64 }}>
-      <h1 style={{ fontSize: 32, fontWeight: 700, marginBottom: 16 }}>Sign in</h1>
+    <div className="container" style={{ paddingTop: 80 }}>
+      <div style={{ maxWidth: 520, margin: '0 auto' }}>
+        <h1 style={{ fontSize: 40, fontWeight: 800, marginBottom: 24 }}>Sign in</h1>
 
-      {sent ? (
-        <p>
-          Check <b>{email}</b> for your sign-in link. (It can take a minute—check spam.)
-        </p>
-      ) : (
-        <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12, maxWidth: 480 }}>
-          <label className="label" htmlFor="email">Email</label>
-          <input
-            id="email"
-            type="email"
-            className="input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="your email"
-            required
-          />
+        {sent ? (
+          <p>Check <b>{email}</b> for your sign-in link. (It can take a minute—check spam.)</p>
+        ) : (
+          <form onSubmit={onSubmit} style={{ display: 'grid', gap: 12 }}>
+            <label className="label" htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              className="input"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="your email"
+              required
+            />
 
-          {error && <p style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</p>}
+            {error && <p style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</p>}
 
-          <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content' }}>
-            {sending ? 'Sending…' : 'Send magic link'}
-          </button>
-        </form>
-      )}
+            <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content' }}>
+              {sending ? 'Sending…' : 'Send magic link'}
+            </button>
+          </form>
+        )}
+      </div>
     </div>
   )
 }
