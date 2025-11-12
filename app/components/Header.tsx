@@ -27,13 +27,14 @@ export default async function Header() {
     <header>
       <div className="container">
         <div className="nav">
+          {/* Left: brand */}
           <div className="brand">
             <span className="logo" />
             <Link href="/">Marketing-ARK</Link>
           </div>
 
+          {/* Right: role-aware links + auth */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <Link href="/onboarding">Onboarding</Link>
             {canSeeRegion && <Link href="/region">Region</Link>}
             {canSeeCompany && <Link href="/company">Company</Link>}
 
