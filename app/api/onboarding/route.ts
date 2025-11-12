@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { supabaseAdmin } from '../../..//../lib/supabaseAdmin' // ../../..//../ from this folder to lib
+import { supabaseAdmin } from '../../lib/supabaseAdmin' 
 
 export const runtime = 'nodejs'
 
@@ -69,3 +69,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: e?.message || 'Unknown error' }, { status: 500 })
   }
 }
+
