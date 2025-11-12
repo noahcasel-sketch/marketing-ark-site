@@ -4,6 +4,18 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin'
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
+type Rep = {
+  id: string
+  created_at: string
+  legal_first_name: string
+  legal_last_name: string
+  email: string
+  phone: string
+  address: string
+  id_photo_path: string | null
+  region_code: string
+}
+
 export default async function RegionPage() {
   const supabase = supabaseServer()
   const { data: { user } } = await supabase.auth.getUser()
@@ -16,6 +28,7 @@ export default async function RegionPage() {
     )
   }
 
+  // Determine the region managed by this email
   const { data: region } = await supabase
     .from('regions')
     .select('*')
@@ -30,22 +43,24 @@ export default async function RegionPage() {
     )
   }
 
-  // RLS limits rows to this region automatically
+  // RLS will restrict to this region automatically
   const { data: reps } = await supabase.from('reps').select('*')
 
-  const withSigned = await Promise.all(
-    (reps || []).map(async (r: any) => {
-      let url: string | null = null
+  // Create short-lived signed URLs for private ID images
+  const withSigned: (Rep & { id_url: string | null })[] = []
+  if (reps && reps.length > 0) {
+    for (const r of reps as Rep[]) {
+      let id_url: string | null = null
       if (r.id_photo_path) {
         const { data } = await supabaseAdmin
           .storage
           .from('id-photos')
           .createSignedUrl(r.id_photo_path, 60 * 5)
-        url = data?.signedUrl || null
+        id_url = data?.signedUrl ?? null
       }
-      return { ...r, id_url: url }
-    })
-  )
+      withSigned.push({ ...(r as Rep), id_url })
+    }
+  }
 
   return (
     <div className="container" style={{ paddingTop: 48 }}>
@@ -57,7 +72,7 @@ export default async function RegionPage() {
         <p>No reps yet.</p>
       ) : (
         <div className="grid">
-          {withSigned.map((rep: any) => (
+          {withSigned.map((rep) => (
             <div key={rep.id} className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                 <div style={{ fontWeight: 600 }}>
@@ -67,6 +82,18 @@ export default async function RegionPage() {
                   {new Date(rep.created_at).toLocaleString()}
                 </div>
               </div>
-              <div className="row"><b>Email:</b> {rep.email}</div>
-              <div className="row"><b>Phone:</b> {rep.phone}</div>
-              <div className="row"><b>Address:</b> {rep.address}</
+              <div style={{ fontSize: 14, marginBottom: 4 }}><b>Email:</b> {rep.email}</div>
+              <div style={{ fontSize: 14, marginBottom: 4 }}><b>Phone:</b> {rep.phone}</div>
+              <div style={{ fontSize: 14, marginBottom: 4 }}><b>Address:</b> {rep.address}</div>
+              {rep.id_url && (
+                <div style={{ marginTop: 8 }}>
+                  <a href={rep.id_url} target="_blank" rel="noreferrer">View ID</a>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
