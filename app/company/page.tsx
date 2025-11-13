@@ -1,7 +1,7 @@
 // app/company/page.tsx
-import ApproveButton from "../region/ApproveButton";
 import { supabaseServer } from "../../lib/supabaseServer";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
+import RepAdminList, { AdminItem } from "../../components/RepAdminList";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,23 +9,7 @@ export const revalidate = 0;
 const OWNER_EMAIL = "noahcasel@marketing-ark.com";
 
 type RegionCode = "ARK" | "AKM" | "HC";
-type RepRow = {
-  id: string;
-  created_at: string;
-  region_code: RegionCode;
-  legal_first_name: string;
-  legal_last_name: string;
-  email: string;
-  phone: string | null;
-  address: string | null;
-  id_photo_path: string | null;
-};
-
-const REGION_NAMES: Record<RegionCode, string> = {
-  ARK: "ARK",
-  AKM: "AK Marketing",
-  HC: "HC",
-};
+const ALL_REGIONS: RegionCode[] = ["ARK", "AKM", "HC"];
 
 export default async function CompanyAdminPage() {
   const supabase = supabaseServer();
@@ -36,7 +20,7 @@ export default async function CompanyAdminPage() {
   if (!user?.email) {
     return (
       <main style={{ maxWidth: 980, margin: "48px auto" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Company — Pending Approvals</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Company — Team Management</h1>
         <p>Please <a href="/login">log in</a> to view this page.</p>
       </main>
     );
@@ -50,25 +34,25 @@ export default async function CompanyAdminPage() {
     );
   }
 
-  // load all pending
-  const { data: pending, error } = await supabaseAdmin
+  const items: AdminItem[] = [];
+
+  // PENDING across all regions
+  const { data: pend, error: pErr } = await supabaseAdmin
     .from("pending_reps")
     .select(
-      "id, created_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
+      "id, submitted_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
     )
     .order("submitted_at", { ascending: false });
 
-  if (error) {
+  if (pErr) {
     return (
       <main style={{ maxWidth: 980, margin: "48px auto" }}>
-        <p>Error loading pending reps: {error.message}</p>
+        <p>Error loading pending reps: {pErr.message}</p>
       </main>
     );
   }
 
-  // sign ID URLs
-  const enriched: (RepRow & { id_url: string | null })[] = [];
-  for (const r of (pending || []) as RepRow[]) {
+  for (const r of pend || []) {
     let id_url: string | null = null;
     if (r.id_photo_path) {
       const { data } = await supabaseAdmin
@@ -77,47 +61,62 @@ export default async function CompanyAdminPage() {
         .createSignedUrl(r.id_photo_path, 60 * 5);
       id_url = data?.signedUrl ?? null;
     }
-    enriched.push({ ...r, id_url });
+    items.push({
+      id: r.id,
+      status: "awaiting",
+      region_code: r.region_code,
+      name: `${r.legal_first_name} ${r.legal_last_name}`,
+      email: r.email,
+      phone: r.phone,
+      address: r.address,
+      submitted_at: r.submitted_at,
+      id_url,
+    });
   }
+
+  // REPS across all regions
+  const { data: reps } = await supabaseAdmin
+    .from("reps")
+    .select(
+      "id, created_at, status, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
+    )
+    .in("region_code", ALL_REGIONS)
+    .order("created_at", { ascending: false });
+
+  for (const r of reps || []) {
+    let id_url: string | null = null;
+    if (r.id_photo_path) {
+      const { data } = await supabaseAdmin
+        .storage
+        .from("id-photos")
+        .createSignedUrl(r.id_photo_path, 60 * 5);
+      id_url = data?.signedUrl ?? null;
+    }
+    items.push({
+      id: r.id,
+      status: (r.status as "active" | "inactive") ?? "active",
+      region_code: r.region_code,
+      name: `${r.legal_first_name} ${r.legal_last_name}`,
+      email: r.email,
+      phone: r.phone,
+      address: r.address,
+      created_at: r.created_at,
+      id_url,
+      is_rep: true,
+    });
+  }
+
+  // sort newest first
+  items.sort((a, b) => {
+    const da = new Date(a.submitted_at || a.created_at || 0).getTime();
+    const db = new Date(b.submitted_at || b.created_at || 0).getTime();
+    return db - da;
+  });
 
   return (
     <main style={{ maxWidth: 980, margin: "48px auto" }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>Company — Pending Approvals</h1>
-
-      {(enriched || []).length === 0 ? (
-        <p>No pending reps.</p>
-      ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {enriched.map((r) => (
-            <div
-              key={r.id}
-              style={{
-                border: "1px solid #e5e7eb",
-                borderRadius: 12,
-                padding: 12,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: 600 }}>
-                  {r.legal_first_name} {r.legal_last_name} ({REGION_NAMES[r.region_code]})
-                </div>
-                <div style={{ fontSize: 14 }}>{r.email}{r.phone ? ` · ${r.phone}` : ""}</div>
-                {r.address && <div style={{ fontSize: 14 }}>{r.address}</div>}
-                {r.id_url && (
-                  <div style={{ marginTop: 6 }}>
-                    <a href={r.id_url} target="_blank" rel="noreferrer">View ID</a>
-                  </div>
-                )}
-              </div>
-              <ApproveButton id={r.id} />
-            </div>
-          ))}
-        </div>
-      )}
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>Company — Team Management</h1>
+      <RepAdminList items={items} />
     </main>
   );
 }
