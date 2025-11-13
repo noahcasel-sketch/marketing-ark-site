@@ -1,12 +1,12 @@
 // app/api/reps/approve/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { supabaseServer } from "../../../../lib/supabaseServer";
+import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
+import { supabaseServer } from "../../../../../lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-/* ---------------------------- small helpers ---------------------------- */
+/* ---------------------------- helpers ---------------------------- */
 
 function titleFromEmail(email?: string | null) {
   if (!email) return "Manager";
@@ -22,7 +22,6 @@ function splitFullName(v?: string | null) {
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
-// Probe whether a column exists by doing a no-op select
 async function columnExists(table: string, col: string): Promise<boolean> {
   try {
     const { error } = await supabaseAdmin.from(table).select(col).limit(0);
@@ -32,7 +31,6 @@ async function columnExists(table: string, col: string): Promise<boolean> {
   }
 }
 
-// Figure out which email column your reps table uses
 async function pickEmailColumn(table: string): Promise<string | null> {
   const candidates = ["email", "rep_email", "user_email", "contact_email"];
   for (const c of candidates) if (await columnExists(table, c)) return c;
@@ -40,11 +38,7 @@ async function pickEmailColumn(table: string): Promise<string | null> {
 }
 
 type PendingRow = Record<string, any>;
-type FallbackCtx = {
-  pending: PendingRow;
-  approverEmail: string;
-  regionCode: string | null;
-};
+type FallbackCtx = { pending: PendingRow; approverEmail: string; regionCode: string | null };
 
 function fromPending(p: PendingRow, keys: string[]) {
   for (const k of keys) {
@@ -59,146 +53,87 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
   const email = String(
     fromPending(p, ["email", "rep_email", "user_email", "contact_email"]) || ""
   ).toLowerCase();
-
   const lower = col.toLowerCase();
 
-  // email-ish
-  if (lower.includes("email")) {
-    return email ? email : "unknown@marketing-ark.com";
-  }
+  if (lower.includes("email")) return email || "unknown@marketing-ark.com";
 
-  // names
   if (lower.includes("first_name")) {
-    const direct =
-      fromPending(p, ["legal_first_name", "first_name", "fname", "given_name"]);
+    const direct = fromPending(p, ["legal_first_name", "first_name", "fname", "given_name"]);
     if (direct !== undefined) return direct;
-    const split = splitFullName(
-      (fromPending(p, ["full_name", "name"]) as string | undefined) || ""
-    );
-    return split.first ? split.first : "Unknown";
+    const split = splitFullName((fromPending(p, ["full_name", "name"]) as string | undefined) || "");
+    return split.first || "Unknown";
   }
   if (lower.includes("last_name")) {
-    const direct =
-      fromPending(p, ["legal_last_name", "last_name", "lname", "surname"]);
+    const direct = fromPending(p, ["legal_last_name", "last_name", "lname", "surname"]);
     if (direct !== undefined) return direct;
-    const split = splitFullName(
-      (fromPending(p, ["full_name", "name"]) as string | undefined) || ""
-    );
-    return split.last ? split.last : "Unknown";
+    const split = splitFullName((fromPending(p, ["full_name", "name"]) as string | undefined) || "");
+    return split.last || "Unknown";
   }
 
   if (lower === "name") {
     const n = fromPending(p, ["name", "full_name"]);
-    const base = n !== undefined ? n : email;
-    return base ? base : "Unknown";
+    return (n !== undefined ? n : email) || "Unknown";
   }
   if (lower === "manager_name") {
     const m = fromPending(p, ["manager_name"]);
     return m !== undefined ? m : titleFromEmail(ctx.approverEmail);
   }
 
-  // region
-  if (lower === "region_code" || lower === "region") {
-    return ctx.regionCode ? ctx.regionCode : "ARK";
-  }
-
-  // status-like
+  if (lower === "region_code" || lower === "region") return ctx.regionCode || "ARK";
   if (lower === "status") return "active";
 
-  // timestamps / dates
-  if (lower.endsWith("_at") || lower.includes("timestamp"))
-    return new Date().toISOString();
+  if (lower.endsWith("_at") || lower.includes("timestamp")) return new Date().toISOString();
   if (lower.includes("date")) return new Date().toISOString().slice(0, 10);
 
-  // boolean-ish
-  if (
-    lower.startsWith("is_") ||
-    lower.includes("enabled") ||
-    lower.includes("active_flag")
-  )
-    return false;
+  if (lower.startsWith("is_") || lower.includes("enabled") || lower.includes("active_flag")) return false;
+  if (lower.includes("count") || lower.includes("qty") || lower.includes("number")) return 0;
 
-  // numeric-ish
-  if (
-    lower.includes("count") ||
-    lower.includes("qty") ||
-    lower.includes("number")
-  )
-    return 0;
-
-  // phones/addresses
-  if (lower.includes("phone"))
-    return (
-      fromPending(p, ["phone", "mobile", "phone_number"]) || "0000000000"
-    );
-  if (lower.includes("zip") || lower.includes("postal"))
-    return fromPending(p, ["zip", "postal_code"]) || "00000";
+  if (lower.includes("phone")) return fromPending(p, ["phone", "mobile", "phone_number"]) || "0000000000";
+  if (lower.includes("zip") || lower.includes("postal")) return fromPending(p, ["zip", "postal_code"]) || "00000";
   if (lower.includes("city")) return fromPending(p, ["city"]) || "N/A";
-  if (lower.includes("state"))
-    return fromPending(p, ["state", "province"]) || "N/A";
-  if (lower.includes("address"))
-    return fromPending(p, ["address", "street", "street1"]) || "N/A";
+  if (lower.includes("state")) return fromPending(p, ["state", "province"]) || "N/A";
+  if (lower.includes("address")) return fromPending(p, ["address", "street", "street1"]) || "N/A";
 
-  // audit-ish
   if (lower === "approved_by") return ctx.approverEmail;
   if (lower === "approved_at") return new Date().toISOString();
 
-  // default text fallback
   return "N/A";
 }
 
 function coerceByTypeHint(current: any, msg: string): any {
   const m = msg.toLowerCase();
   if (m.includes("type boolean")) return false;
-  if (
-    m.includes("type integer") ||
-    m.includes("type bigint") ||
-    m.includes("type numeric") ||
-    m.includes("type double")
-  )
+  if (m.includes("type integer") || m.includes("type bigint") || m.includes("type numeric") || m.includes("type double"))
     return 0;
-  if (m.includes("timestamp") || m.includes("timestamptz"))
-    return new Date().toISOString();
+  if (m.includes("timestamp") || m.includes("timestamptz")) return new Date().toISOString();
   if (m.includes("type date")) return new Date().toISOString().slice(0, 10);
   return current ?? "N/A";
 }
 
-/**
- * Try insert; on NOT NULL errors, add a value for the offending column and retry.
- * Handles the Postgres message variant: `null value in column "X" of relation "reps" violates not-null constraint`.
- */
-async function robustInsert(
-  table: string,
-  base: Record<string, any>,
-  ctx: FallbackCtx
-) {
+/** Insert; on NOT NULL/type errors, add a value and retry. */
+async function robustInsert(table: string, base: Record<string, any>, ctx: FallbackCtx) {
   let payload = { ...base };
   for (let i = 0; i < 20; i++) {
     const { error } = await supabaseAdmin.from(table).insert(payload);
     if (!error) return { ok: true as const, payload };
     const msg = error.message || "";
 
-    // NOT NULL -> with or without `of relation "reps"`
-    let m =
-      /null value in column "([^"]+)"(?: of relation "[^"]+")? violates not-null constraint/i.exec(
-        msg
-      );
+    // NOT NULL – matches both with/without: `of relation "reps"`
+    let m = /null value in column "([^"]+)"(?: of relation "[^"]+")? violates not-null constraint/i.exec(msg);
     if (m) {
       const col = m[1];
-      if (await columnExists(table, col)) {
-        payload[col] = guessFallback(col, ctx);
-      }
-      continue; // retry
+      if (await columnExists(table, col)) payload[col] = guessFallback(col, ctx);
+      continue;
     }
 
-    // Column doesn't exist (defensive)
+    // Column doesn’t exist
     m = /could not find the '([^']+)' column/i.exec(msg);
     if (m) {
       delete (payload as any)[m[1]];
       continue;
     }
 
-    // Type mismatch (e.g., "invalid input syntax for type integer: \"N/A\"")
+    // Type mismatch
     m = /invalid input syntax for type ([^:]+):/i.exec(msg);
     if (m) {
       const keys = Object.keys(payload);
@@ -207,7 +142,7 @@ async function robustInsert(
       continue;
     }
 
-    // Check constraint (e.g., status IN (...))
+    // Check constraint (e.g., status enum)
     if (/violates check constraint/i.test(msg) && "status" in payload) {
       payload["status"] = "active";
       continue;
@@ -218,102 +153,53 @@ async function robustInsert(
   return { ok: false as const, error: "Insert failed after multiple retries." };
 }
 
-/* ------------------------------ main route ------------------------------ */
+/* ------------------------------ main ------------------------------ */
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
+    const pendingId = body.id ?? body.pending_id ?? body.pendingId ?? body.pid ?? null;
+    if (!pendingId) return NextResponse.json({ error: "Missing pending rep id" }, { status: 400 });
 
-    const pendingId =
-      body.id ?? body.pending_id ?? body.pendingId ?? body.pid ?? null;
-    if (!pendingId) {
-      return NextResponse.json({ error: "Missing pending rep id" }, { status: 400 });
-    }
-
-    // who is approving?
+    // approver
     const sb = supabaseServer();
     const { data: { user } } = await sb.auth.getUser();
     if (!user?.email) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     const approverEmail = user.email.toLowerCase();
 
-    // staff role / regions
-    const { data: staff } = await supabaseAdmin
-      .from("staff")
-      .select("role, regions")
-      .eq("email", approverEmail)
-      .maybeSingle();
+    // role / regions
+    const { data: staff } = await supabaseAdmin.from("staff").select("role, regions").eq("email", approverEmail).maybeSingle();
     const role = (staff?.role as "owner" | "regional") || null;
     const approverRegions: string[] = Array.isArray(staff?.regions) ? staff!.regions : [];
     if (!role) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-    // pending row
-    const { data: pending, error: pErr } = await supabaseAdmin
-      .from("pending_reps")
-      .select("*")
-      .eq("id", pendingId)
-      .maybeSingle();
-    if (pErr || !pending) {
-      return NextResponse.json({ error: pErr?.message || "Pending rep not found" }, { status: 404 });
-    }
+    // pending rep
+    const { data: pending, error: pErr } = await supabaseAdmin.from("pending_reps").select("*").eq("id", pendingId).maybeSingle();
+    if (pErr || !pending) return NextResponse.json({ error: pErr?.message || "Pending rep not found" }, { status: 404 });
 
-    // resolve region code (your DB enforces NOT NULL on region_code)
+    // region code
     let regionCode: string | null =
       (body.region ?? body.region_code ?? body.regionCode)?.toString() ??
       (pending.region_code ?? pending.region ?? pending.team ?? null);
-
-    if (!regionCode && role === "regional" && approverRegions.length === 1) {
-      regionCode = approverRegions[0];
-    }
-    if (
-      role === "regional" &&
-      regionCode &&
-      approverRegions.length > 0 &&
-      !approverRegions.includes(regionCode)
-    ) {
-      return NextResponse.json(
-        { error: `Region ${regionCode} not allowed for this approver` },
-        { status: 403 }
-      );
+    if (!regionCode && role === "regional" && approverRegions.length === 1) regionCode = approverRegions[0];
+    if (role === "regional" && regionCode && approverRegions.length > 0 && !approverRegions.includes(regionCode)) {
+      return NextResponse.json({ error: `Region ${regionCode} not allowed for this approver` }, { status: 403 });
     }
 
-    // find the reps email column
+    // email column + value
     const emailCol = await pickEmailColumn("reps");
     if (!emailCol) {
-      return NextResponse.json(
-        { error: "No email-like column found on 'reps' (looked for email/rep_email/user_email/contact_email)." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No email-like column on 'reps' (email/rep_email/user_email/contact_email)." }, { status: 400 });
     }
-    const pendingEmail =
-      String(
-        fromPending(pending, [
-          emailCol,
-          "email",
-          "rep_email",
-          "user_email",
-          "contact_email",
-        ]) || ""
-      ).toLowerCase();
+    const pendingEmail = String(
+      fromPending(pending, [emailCol, "email", "rep_email", "user_email", "contact_email"]) || ""
+    ).toLowerCase();
+    if (!pendingEmail) return NextResponse.json({ error: "Pending rep has no email value." }, { status: 400 });
 
-    if (!pendingEmail) {
-      return NextResponse.json(
-        { error: "Pending rep has no email value. Add an email field to pending_reps." },
-        { status: 400 }
-      );
-    }
-
-    // Base payload: start small but proactively set the common NOT NULL offenders if those columns exist
-    const payload: Record<string, any> = {
-      [emailCol]: pendingEmail,
-    };
-
+    // base payload (only existing columns)
+    const payload: Record<string, any> = { [emailCol]: pendingEmail };
     if (await columnExists("reps", "region_code")) {
-      if (!regionCode) {
-        return NextResponse.json(
-          { error: "region_code is required by 'reps' and is missing. Provide it in the request or on the pending row." },
-          { status: 400 }
-        );
-      }
+      if (!regionCode) return NextResponse.json({ error: "region_code is required by 'reps' and is missing." }, { status: 400 });
       payload["region_code"] = regionCode;
     }
     if (await columnExists("reps", "region")) payload["region"] = regionCode ?? null;
@@ -322,93 +208,113 @@ export async function POST(req: Request) {
     if (await columnExists("reps", "approved_by")) payload["approved_by"] = approverEmail;
     if (await columnExists("reps", "approved_at")) payload["approved_at"] = new Date().toISOString();
 
-    // Pre-populate legal_first_name / legal_last_name if present
+    // proactively fill common NOT NULL name fields
     if (await columnExists("reps", "legal_first_name")) {
-      const v =
-        fromPending(pending, ["legal_first_name", "first_name", "given_name", "fname"]) ||
-        splitFullName(
-          (fromPending(pending, ["full_name", "name"]) as string | undefined) || ""
-        ).first ||
-        "Unknown";
+      const v = fromPending(pending, ["legal_first_name", "first_name", "given_name", "fname"])
+        ?? splitFullName((fromPending(pending, ["full_name", "name"]) as string | undefined) || "").first
+        ?? "Unknown";
       payload["legal_first_name"] = v;
     }
     if (await columnExists("reps", "legal_last_name")) {
-      const v =
-        fromPending(pending, ["legal_last_name", "last_name", "surname", "lname"]) ||
-        splitFullName(
-          (fromPending(pending, ["full_name", "name"]) as string | undefined) || ""
-        ).last ||
-        "Unknown";
+      const v = fromPending(pending, ["legal_last_name", "last_name", "surname", "lname"])
+        ?? splitFullName((fromPending(pending, ["full_name", "name"]) as string | undefined) || "").last
+        ?? "Unknown";
       payload["legal_last_name"] = v;
     }
 
-    // 🔁 Copy ANY same-named columns from pending → reps (includes things like id photos)
-    // e.g., id_photo_url, id_photo, id_url, selfie_url, gov_id_front, etc.
+    // copy same-named fields (e.g., id_photo_url, selfie_url) and map common variants → your reps columns
+    const candidateIdCols = [
+      ["id_photo_url", "id_photo_url"],
+      ["id_photo", "id_photo"],
+      ["gov_id_url", "id_photo_url"],
+      ["government_id_url", "id_photo_url"],
+      ["gov_id_front", "id_photo_url"],
+      ["id_front_url", "id_photo_url"],
+      ["id_image_url", "id_photo_url"],
+      ["selfie_url", "selfie_url"],
+      ["selfie_photo_url", "selfie_url"],
+    ];
+    // same-name direct copies
     for (const k of Object.keys(pending)) {
-      if (payload[k] !== undefined) continue; // don't override what we set
-      if (await columnExists("reps", k)) {
-        payload[k] = pending[k];
+      if (payload[k] !== undefined) continue;
+      if (await columnExists("reps", k)) payload[k] = pending[k];
+    }
+    // mapped variants
+    for (const [src, dest] of candidateIdCols) {
+      if (pending[src] !== undefined && (await columnExists("reps", dest)) && payload[dest] === undefined) {
+        payload[dest] = pending[src];
       }
     }
 
-    // Try robust insert; on NOT NULL/type errors we’ll auto-fill and retry
+    // insert robustly
     const ctx: FallbackCtx = { pending, approverEmail, regionCode };
     const res = await robustInsert("reps", payload, ctx);
-    if (!res.ok) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
-    }
+    if (!res.ok) return NextResponse.json({ error: res.error }, { status: 400 });
 
     // delete from pending
     await supabaseAdmin.from("pending_reps").delete().eq("id", pendingId);
 
-    // ----------------------- password email flow -----------------------
-    const SITE =
-      process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com";
+    /* ------------------ ensure user + send / return reset link ------------------ */
+    const SITE = process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com";
 
-    // First try: invite (works when the user doesn't exist yet)
-    let emailed = false;
+    // 1) Ensure there is an auth user (create if missing, ignore "already exists")
     try {
-      // @ts-ignore - supabase-js v2 admin API
+      // @ts-ignore
+      await supabaseAdmin.auth.admin.createUser({
+        email: pendingEmail,
+        email_confirm: false,
+        user_metadata: { role: "rep", region_code: regionCode || null },
+      });
+    } catch (e: any) {
+      // ignore duplicates
+    }
+
+    // 2) Try invite; if provider rejects (invalid/blocked), fall back to recovery + return URL
+    let emailed = false;
+    let recoveryUrl: string | null = null;
+
+    try {
+      // @ts-ignore
       await supabaseAdmin.auth.admin.inviteUserByEmail(pendingEmail, {
         redirectTo: `${SITE}/reset-password`,
       });
       emailed = true;
     } catch (e: any) {
-      // common case: user already exists -> fall through
+      // Invite failed (common when provider flags recipient)
     }
 
-    // If invite didn't go, send a password reset email
     if (!emailed) {
       try {
-        const supabaseAnon = createClient(
+        // Anonymous client to trigger recovery email (may still fail if provider blocks)
+        const anon = createClient(
           process.env.NEXT_PUBLIC_SUPABASE_URL!,
           process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
         );
-        await supabaseAnon.auth.resend({
+        await anon.auth.resend({
           type: "recovery",
           email: pendingEmail,
           options: { redirectTo: `${SITE}/reset-password` },
         });
         emailed = true;
       } catch (e: any) {
-        // last resort: generate link and log it so you can see it in Vercel logs
+        // Final fallback: generate link and return it so you can deliver manually
         try {
-          // @ts-ignore - admin API
+          // @ts-ignore
           const { data: linkData } = await supabaseAdmin.auth.admin.generateLink({
             type: "recovery",
             email: pendingEmail,
             options: { redirectTo: `${SITE}/reset-password` },
           });
-          console.warn(
-            `[approve] Recovery link for ${pendingEmail}: ${linkData?.action_link}`
-          );
+          recoveryUrl = linkData?.action_link || null;
+          // Also log for safety
+          console.warn(`[approve] Recovery link for ${pendingEmail}: ${recoveryUrl}`);
         } catch (e2) {
-          console.error("[approve] Failed to generate recovery link:", e2);
+          // ignore
         }
       }
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, emailed, recoveryUrl });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
