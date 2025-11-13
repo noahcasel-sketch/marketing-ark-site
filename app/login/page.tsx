@@ -84,26 +84,32 @@ export default function LoginPage() {
     window.location.href = '/portal'
   }
 
+  const tabStyle = (active: boolean) => ({
+    padding: '10px 16px',
+    borderRadius: 999,
+    border: '2px solid #60a5fa',
+    background: active ? '#60a5fa' : 'transparent',
+    color: active ? '#0b1220' : '#e5e7eb',
+    fontWeight: 800,
+  } as const)
+
+  const btnStyle = {
+    background: '#60a5fa',
+    color: '#0b1220',
+    borderRadius: 12,
+    padding: '12px 18px',
+    fontWeight: 800,
+    boxShadow: '0 6px 18px rgba(96,165,250,0.25)',
+  } as const
+
   return (
-    <main style={{ maxWidth: 520, margin: '64px auto' }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Sign in</h1>
+    <main style={{ maxWidth: 560, margin: '64px auto' }}>
+      <h1 style={{ fontSize: 32, fontWeight: 900, marginBottom: 16 }}>Sign in</h1>
 
       {/* mode switch */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        <button
-          type="button"
-          onClick={() => setMode('email')}
-          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', background: mode === 'email' ? '#f1f5f9' : 'transparent', fontWeight: 600 }}
-        >
-          Email link
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('password')}
-          style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e7eb', background: mode === 'password' ? '#f1f5f9' : 'transparent', fontWeight: 600 }}
-        >
-          Password
-        </button>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        <button type="button" onClick={() => setMode('email')} style={tabStyle(mode === 'email')}>Email link</button>
+        <button type="button" onClick={() => setMode('password')} style={tabStyle(mode === 'password')}>Password</button>
       </div>
 
       {mode === 'email' ? (
@@ -111,21 +117,42 @@ export default function LoginPage() {
           <p>Check your email for the sign-in link.</p>
         ) : (
           <form onSubmit={onSubmitEmail} style={{ display: 'grid', gap: 16, padding: 20 }}>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" required style={{ height: 46, paddingInline: 12, borderRadius: 10 }} />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@example.com"
+              required
+              style={{ height: 52, paddingInline: 14, borderRadius: 12, border: '1px solid #334155', color: '#e5e7eb', background: '#0b1220' }}
+            />
             {info && <p style={{ color: '#94a3b8', fontSize: 14 }}>{info}</p>}
             {error && <p style={{ color: '#ef4444', fontSize: 14 }}>{error}</p>}
-            <button type="submit" disabled={sending} style={{ width: 'fit-content', padding: '10px 16px', borderRadius: 10, fontWeight: 600 }}>
+            <button type="submit" disabled={sending} style={btnStyle}>
               {sending ? 'Sending…' : 'Send magic link'}
             </button>
           </form>
         )
       ) : (
         <form onSubmit={onSubmitPassword} style={{ display: 'grid', gap: 16, padding: 20 }}>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" required style={{ height: 46, paddingInline: 12, borderRadius: 10 }} />
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required style={{ height: 46, paddingInline: 12, borderRadius: 10 }} />
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="name@example.com"
+            required
+            style={{ height: 52, paddingInline: 14, borderRadius: 12, border: '1px solid #334155', color: '#e5e7eb', background: '#0b1220' }}
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            required
+            style={{ height: 52, paddingInline: 14, borderRadius: 12, border: '1px solid #334155', color: '#e5e7eb', background: '#0b1220' }}
+          />
           {info && <p style={{ color: '#94a3b8', fontSize: 14 }}>{info}</p>}
           {error && <p style={{ color: '#ef4444', fontSize: 14 }}>{error}</p>}
-          <button type="submit" disabled={sending} style={{ width: 'fit-content', padding: '10px 16px', borderRadius: 10, fontWeight: 600 }}>
+          <button type="submit" disabled={sending} style={btnStyle}>
             {sending ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
