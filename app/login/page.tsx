@@ -39,6 +39,8 @@ export default function LoginPage() {
       setSending(false)
       if (otpErr) setError(otpErr.message)
       else setSent(true)
+    } else if (j.status === 'inactive') {
+      setInfo('This account is no longer active. If this is incorrect, please contact your manager.')
     } else if (j.status === 'pending') {
       setInfo('This email is pending approval.')
     } else if (j.status === 'not_found') {
@@ -58,12 +60,7 @@ export default function LoginPage() {
         <form
           onSubmit={onSubmit}
           className="card"
-          style={{
-            padding: 20,
-            display: 'grid',
-            gap: 16, // <-- adds clean spacing between input and button
-            background: 'var(--surface, #0f172a00)'
-          }}
+          style={{ padding: 20, display: 'grid', gap: 16 }}
         >
           <input
             type="email"
@@ -72,22 +69,17 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="name@example.com"
             required
-            style={{ height: 44, paddingInline: 12, borderRadius: 10 }}
+            style={{ height: 46, paddingInline: 12, borderRadius: 10 }}
           />
 
-          {info && <p style={{ color: '#94a3b8', fontSize: 14, marginTop: 4 }}>{info}</p>}
-          {error && <p style={{ color: '#ef4444', fontSize: 14, marginTop: 4 }}>{error}</p>}
+          {info && <p style={{ color: '#94a3b8', fontSize: 14 }}>{info}</p>}
+          {error && <p style={{ color: '#ef4444', fontSize: 14 }}>{error}</p>}
 
           <button
             type="submit"
             disabled={sending}
             className="btn"
-            style={{
-              width: 'fit-content',
-              padding: '10px 16px',
-              borderRadius: 10,
-              fontWeight: 600
-            }}
+            style={{ width: 'fit-content', padding: '10px 16px', borderRadius: 10, fontWeight: 600 }}
           >
             {sending ? 'Sending…' : 'Send magic link'}
           </button>
