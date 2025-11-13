@@ -26,51 +26,6 @@ export default async function PortalPage() {
 
   return (
     <main style={{ maxWidth: 1100, margin: "48px auto", padding: "0 16px" }}>
-      {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div
-            style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: "linear-gradient(135deg,#64f,#3ddc97)",
-            }}
-          />
-          <div style={{ fontWeight: 700, fontSize: 18 }}>Marketing-ARK</div>
-        </div>
-
-        {/* Right-side auth area */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {user ? (
-            <>
-              <span style={{ opacity: 0.9 }}>{user.email}</span>
-              <Link
-                href="/logout"
-                style={{
-                  background: "#55b3f3",
-                  padding: "8px 12px",
-                  borderRadius: 10,
-                  fontWeight: 600,
-                }}
-              >
-                Log out
-              </Link>
-            </>
-          ) : (
-            <Link
-              href="/login"
-              style={{
-                background: "#55b3f3",
-                padding: "8px 12px",
-                borderRadius: 10,
-                fontWeight: 600,
-              }}
-            >
-              Rep Login
-            </Link>
-          )}
-        </div>
-      </div>
-
       <h1 style={{ marginTop: 0 }}>Rep Portal</h1>
       <p style={{ marginTop: 4, opacity: 0.9 }}>
         {user ? <>Welcome, <strong>{user.email}</strong>.</> : <>Please sign in to access your portal.</>}
@@ -110,7 +65,7 @@ export default async function PortalPage() {
           <h2 style={cardTitle}>Documents</h2>
           <p>Complete your Direct Seller Agreement and W-9.</p>
           <Link
-            href="/contract"
+            href="/portal/contract"
             style={{
               display: "inline-block",
               background: "#ffd24a", // yellow
