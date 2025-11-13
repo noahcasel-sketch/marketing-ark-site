@@ -35,24 +35,13 @@ export default function Header() {
   }, [])
 
   useEffect(() => {
-    // initial truth from the server
     fetchServerSession()
-
-    // keep in sync if auth state changes on client
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      fetchServerSession()
-    })
-    return () => {
-      sub.subscription?.unsubscribe?.()
-    }
+    const { data: sub } = supabase.auth.onAuthStateChange(() => fetchServerSession())
+    return () => sub.subscription?.unsubscribe?.()
   }, [fetchServerSession])
 
-  const handleLogout = async (e: React.MouseEvent) => {
-    e.preventDefault()
-    try { await supabase.auth.signOut() } catch {}
-    // clear server cookie too
-    window.location.href = '/logout'
-  }
+  const canSeeRegion = staff.role === 'owner' || staff.role === 'regional'
+  const canSeeCompany = staff.role === 'owner'
 
   const chip = (href: string, label: string) => (
     <Link
@@ -71,13 +60,16 @@ export default function Header() {
     </Link>
   )
 
-  const canSeeRegion = staff.role === 'owner' || staff.role === 'regional'
-  const canSeeCompany = staff.role === 'owner'
+  const handleLogout = async (e: React.MouseEvent) => {
+    e.preventDefault()
+    try { await supabase.auth.signOut() } catch {}
+    window.location.href = '/logout'
+  }
 
   return (
     <header style={{ position: 'sticky', top: 0, zIndex: 40, background: 'transparent' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 64, padding: '0 20px' }}>
-        {/* LEFT: brand + role-aware nav (only when signed in) */}
+        {/* LEFT: brand + nav (only when signed in) */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: '#34d399' }} />
