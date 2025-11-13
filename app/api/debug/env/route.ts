@@ -1,27 +1,28 @@
 // app/api/debug/env/route.ts
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import { NextResponse } from "next/server";
+
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
 export async function GET() {
-  const hasUrl = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const hasKey = !!process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || null;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  const service = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-  let storageOk = false;
-  if (hasUrl && hasKey) {
-    try {
-      const admin = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
-      // no-op: list buckets to validate credentials
-      const { data, error } = await admin.storage.listBuckets();
-      if (!error) storageOk = true;
-    } catch {}
+  // Try to extract the project ref from the URL:
+  // https://<project-ref>.supabase.co
+  let projectRef: string | null = null;
+  if (supabaseUrl) {
+    const m = supabaseUrl.match(/https:\/\/([a-z0-9-]+)\.supabase\.co/i);
+    projectRef = m?.[1] ?? null;
   }
 
-  return NextResponse.json({ hasUrl, hasKey, storageOk });
+  return NextResponse.json({
+    supabase_url_prefix: supabaseUrl ? supabaseUrl.slice(0, 36) : null,
+    supabase_project_ref_guess: projectRef,
+    anon_key_present: Boolean(anon),
+    service_role_present: Boolean(service),
+    site_url: process.env.NEXT_PUBLIC_SITE_URL || null,
+    vercel_env: process.env.VERCEL_ENV || null,
+  });
 }
