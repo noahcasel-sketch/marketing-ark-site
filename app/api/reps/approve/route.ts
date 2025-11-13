@@ -5,155 +5,161 @@ import { supabaseServer } from "../../../../lib/supabaseServer";
 
 export const runtime = "nodejs";
 
+// tiny helper to prettify a name from an email if we don't have one
+function nameFromEmail(email?: string | null) {
+  if (!email) return "Manager";
+  const local = email.split("@")[0] || "";
+  return local
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+    .trim() || "Manager";
+}
+
 export async function POST(req: Request) {
   try {
-    const { pendingId } = await req.json();
+    const body = await req.json().catch(() => ({}));
+    // accept several common param names so UI calls don't break
+    const pendingId =
+      body.id ?? body.pending_id ?? body.pendingId ?? body.pid ?? null;
+    const regionCode =
+      (body.region ?? body.region_code ?? body.regionCode)?.toString() ?? null;
+
     if (!pendingId) {
-      return NextResponse.json({ error: "Missing pendingId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing pending rep id" },
+        { status: 400 }
+      );
     }
 
-    // Who is calling?
-    const supabase = supabaseServer();
+    // who is approving?
+    const sb = supabaseServer();
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await sb.auth.getUser();
     if (!user?.email) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-    const caller = user.email.toLowerCase();
+    const approverEmail = user.email.toLowerCase();
 
-    // Is caller staff?
-    const { data: staff, error: staffErr } = await supabaseAdmin
+    // check staff role + allowed regions
+    const { data: staff } = await supabaseAdmin
       .from("staff")
       .select("role, regions")
-      .eq("email", caller)
+      .eq("email", approverEmail)
       .maybeSingle();
 
-    if (staffErr) {
-      return NextResponse.json({ error: staffErr.message }, { status: 500 });
-    }
-    if (!staff) {
-      return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    const role = staff?.role as "owner" | "regional" | undefined;
+    const approverRegions: string[] = Array.isArray(staff?.regions)
+      ? (staff!.regions as string[])
+      : [];
+
+    if (!role || (role !== "owner" && role !== "regional")) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Load pending rep
+    // fetch pending rep row
     const { data: pending, error: pErr } = await supabaseAdmin
       .from("pending_reps")
-      .select(
-        "id, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
-      )
+      .select("*")
       .eq("id", pendingId)
       .maybeSingle();
 
-    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
-    if (!pending) return NextResponse.json({ error: "Pending rep not found" }, { status: 404 });
+    if (pErr || !pending) {
+      return NextResponse.json(
+        { error: pErr?.message || "Pending rep not found" },
+        { status: 404 }
+      );
+    }
 
-    // Region authorization
-    const allowed =
-      staff.role === "owner" ||
-      (Array.isArray(staff.regions) && staff.regions.includes(pending.region_code));
-    if (!allowed) return NextResponse.json({ error: "Not authorized for this region" }, { status: 403 });
+    // region to use (UI may send it; otherwise take from pending)
+    const code =
+      regionCode ||
+      pending.region ||
+      pending.region_code ||
+      pending.team ||
+      null;
 
-    // Insert into reps (status defaults to active)
-    const payload = {
-      region_code: pending.region_code,
-      legal_first_name: pending.legal_first_name,
-      legal_last_name: pending.legal_last_name,
-      email: pending.email,
-      phone: pending.phone,
-      address: pending.address,
-      id_photo_path: pending.id_photo_path,
+    // region info -> manager email
+    let managerEmail: string | null = null;
+    if (code) {
+      const { data: region } = await supabaseAdmin
+        .from("regions")
+        .select("manager_email, code")
+        .eq("code", code)
+        .maybeSingle();
+      managerEmail =
+        (region?.manager_email as string | null) ??
+        (role === "regional" ? approverEmail : null);
+    } else if (role === "regional") {
+      // if no region on the row, use the approver as manager
+      managerEmail = approverEmail;
+    }
+
+    // regional users can only approve their own regions (if a code exists)
+    if (
+      role === "regional" &&
+      code &&
+      approverRegions.length > 0 &&
+      !approverRegions.includes(code)
+    ) {
+      return NextResponse.json(
+        { error: "Region not allowed for this approver" },
+        { status: 403 }
+      );
+    }
+
+    const repName =
+      pending.name ||
+      pending.full_name ||
+      `${pending.first_name ?? ""} ${pending.last_name ?? ""}`.trim() ||
+      pending.email;
+
+    const insertRow = {
+      name: repName,
+      email: (pending.email as string).toLowerCase(),
+      phone: pending.phone ?? null,
+      address: pending.address ?? null,
+      city: pending.city ?? null,
+      state: pending.state ?? null,
+      zip: pending.zip ?? null,
+      region: code ?? null,
+      status: "active" as const,
+
+      // ✅ Provide non-null values so NOT NULL constraints are satisfied
+      manager_email: managerEmail ?? approverEmail,
+      manager_name:
+        pending.manager_name ||
+        (managerEmail ? nameFromEmail(managerEmail) : nameFromEmail(approverEmail)),
+
+      approved_by: approverEmail,
       approved_at: new Date().toISOString(),
-      approved_by: caller,
     };
 
-    let { data: ins, error: insErr } = await supabaseAdmin
-      .from("reps")
-      .insert(payload)
-      .select("id, email")
-      .maybeSingle();
-
-    if (insErr && /approved_at|approved_by/i.test(insErr.message)) {
-      // Retry without stamps if table doesn't have those columns
-      const retry = await supabaseAdmin
-        .from("reps")
-        .insert({
-          region_code: pending.region_code,
-          legal_first_name: pending.legal_first_name,
-          legal_last_name: pending.legal_last_name,
-          email: pending.email,
-          phone: pending.phone,
-          address: pending.address,
-          id_photo_path: pending.id_photo_path,
-        })
-        .select("id, email")
-        .maybeSingle();
-      ins = retry.data as typeof ins;
-      insErr = retry.error as typeof insErr;
+    // insert into reps
+    const { error: insErr } = await supabaseAdmin.from("reps").insert(insertRow);
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 400 });
     }
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
-    // Remove from pending
-    const { error: delErr } = await supabaseAdmin
-      .from("pending_reps")
-      .delete()
-      .eq("id", pendingId);
-    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+    // remove from pending
+    await supabaseAdmin.from("pending_reps").delete().eq("id", pendingId);
 
-    // --- Send password-setup email ---
-    // Preferred landing after clicking email link:
-    const redirectTo =
-      `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/reset-password`;
-
-    const admin = (supabaseAdmin as any).auth.admin;
-
-    // If they don't yet exist in Auth, invite (sends email to set password).
-    // If already exists, send a password reset email (also lets them set password).
+    // (nice-to-have) send reset/invite so they can set password
     try {
-      // Try a lightweight existence check (not all SDKs have this; safe to try)
-      let exists = false;
-      try {
-        const { data } = await admin.getUserByEmail(pending.email);
-        exists = !!data?.user;
-      } catch {
-        exists = false;
-      }
-
-      if (!exists) {
-        // Try to send an invite (email includes password setup)
-        const { error: inviteErr } = await admin.inviteUserByEmail(pending.email, { redirectTo });
-        if (inviteErr) {
-          // If they're already registered, fall back to reset email
-          const msg = String(inviteErr.message || "").toLowerCase();
-          const already = /already\s*registered|already\s*been\s*registered/.test(msg);
-          if (!already) throw inviteErr;
-
-          const { error: resetErr } = await (supabaseAdmin as any).auth.resetPasswordForEmail(
-            pending.email,
-            { redirectTo }
-          );
-          if (resetErr) throw resetErr;
-        }
-      } else {
-        // Existing Auth user → send reset email for password setup
-        const { error: resetErr } = await (supabaseAdmin as any).auth.resetPasswordForEmail(
-          pending.email,
-          { redirectTo }
-        );
-        if (resetErr) throw resetErr;
-      }
-    } catch (e: any) {
-      // Non-fatal: approval succeeded; return a hint so you can resend if needed.
-      console.error("[approve] password email error:", e?.message);
-      return NextResponse.json({
-        ok: true,
-        id: ins?.id,
-        emailNotice: "Approved, but failed to send password email. Try again from Supabase or contact support.",
+      // supabase-js v2
+      // @ts-ignore - admin is available on service client
+      await supabaseAdmin.auth.admin.inviteUserByEmail(insertRow.email, {
+        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com"}/reset-password`,
       });
+    } catch {
+      // ignore if disabled
     }
 
-    return NextResponse.json({ ok: true, id: ins?.id });
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
