@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 // Make a readable name from an email if needed
 function nameFromEmail(email?: string | null) {
   if (!email) return "Manager";
-  const local = email.split("@")[0] || "";
+  const local = (email || "").split("@")[0] || "";
   return (
     local
       .replace(/[._-]+/g, " ")
@@ -17,39 +17,41 @@ function nameFromEmail(email?: string | null) {
   );
 }
 
-// Try inserting; if PostgREST says a column doesn't exist, drop it and retry.
-async function insertWithPrune(table: string, row: Record<string, any>) {
-  let payload = { ...row };
-  for (let i = 0; i < 6; i++) {
-    const { error } = await supabaseAdmin.from(table).insert(payload);
-    if (!error) return { ok: true as const };
-
-    const msg = (error.message || "").toLowerCase();
-
-    // Example error: "Could not find the 'manager_email' column of 'reps' in the schema cache"
-    const m = /could not find the '([^']+)' column/.exec(error.message || "");
-    if (m && payload[m[1]] !== undefined) {
-      // Drop the offending column and retry
-      delete payload[m[1]];
-      continue;
+/**
+ * Check which columns exist in a table by probing SELECTs.
+ * Returns a subset of `values` containing only existing columns.
+ */
+async function keepExistingColumns(
+  table: string,
+  values: Record<string, any>
+): Promise<Record<string, any>> {
+  const result: Record<string, any> = {};
+  for (const col of Object.keys(values)) {
+    try {
+      // If the column doesn't exist, PostgREST will error here.
+      const { error } = await supabaseAdmin.from(table).select(col).limit(0);
+      if (!error) result[col] = values[col];
+    } catch {
+      // ignore and skip this column
     }
-
-    // NOT NULL violation hint: let the caller handle (we already set manager_name below)
-    return { ok: false as const, error: error.message || "Insert failed" };
   }
-  return { ok: false as const, error: "Insert failed after retries" };
+  return result;
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as {
+      id?: string | number;
+      pending_id?: string | number;
+      pendingId?: string | number;
+      pid?: string | number;
+      region?: string;
+      region_code?: string;
+      regionCode?: string;
+    };
 
-    // Accept several common param names
     const pendingId =
       body.id ?? body.pending_id ?? body.pendingId ?? body.pid ?? null;
-    const regionCode =
-      (body.region ?? body.region_code ?? body.regionCode)?.toString() ?? null;
-
     if (!pendingId) {
       return NextResponse.json(
         { error: "Missing pending rep id" },
@@ -57,7 +59,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Approver (session)
     const sb = supabaseServer();
     const {
       data: { user },
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
     }
     const approverEmail = user.email.toLowerCase();
 
-    // Staff role & allowed regions
+    // Role + allowed regions
     const { data: staff } = await supabaseAdmin
       .from("staff")
       .select("role, regions")
@@ -78,18 +79,16 @@ export async function POST(req: Request) {
     const approverRegions: string[] = Array.isArray(staff?.regions)
       ? (staff!.regions as string[])
       : [];
-
     if (!role) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Pending rep row
+    // Load pending row
     const { data: pending, error: pErr } = await supabaseAdmin
       .from("pending_reps")
       .select("*")
       .eq("id", pendingId)
       .maybeSingle();
-
     if (pErr || !pending) {
       return NextResponse.json(
         { error: pErr?.message || "Pending rep not found" },
@@ -98,14 +97,15 @@ export async function POST(req: Request) {
     }
 
     // Region code to use
+    const inputCode =
+      body.region ?? body.region_code ?? body.regionCode ?? null;
     const code =
-      regionCode ||
+      inputCode ||
       pending.region ||
       pending.region_code ||
       pending.team ||
       null;
 
-    // Regional users can only approve within their regions (when a code exists)
     if (
       role === "regional" &&
       code &&
@@ -118,33 +118,67 @@ export async function POST(req: Request) {
       );
     }
 
-    // Build a SAFE minimal insert
+    // Try to resolve a manager email from regions (if table/column exists)
+    let managerEmail: string | null = null;
+    if (code) {
+      try {
+        const { data: region } = await supabaseAdmin
+          .from("regions")
+          .select("manager_email, code")
+          .eq("code", code)
+          .maybeSingle();
+        managerEmail =
+          (region?.manager_email as string | null) ??
+          (role === "regional" ? approverEmail : null);
+      } catch {
+        managerEmail = role === "regional" ? approverEmail : null;
+      }
+    } else if (role === "regional") {
+      managerEmail = approverEmail;
+    }
+
+    // Candidate values to insert (we will prune to only existing columns)
     const repName =
       pending.name ||
       pending.full_name ||
       `${pending.first_name ?? ""} ${pending.last_name ?? ""}`.trim() ||
       pending.email;
 
-    // Only include fields that are common and likely to exist.
-    // We purposely OMIT manager_email / address / city / zip / phone, etc.
-    const insertRow: Record<string, any> = {
-      name: repName,
+    const candidate: Record<string, any> = {
+      // common identity
       email: String(pending.email || "").toLowerCase(),
+      name: repName, // will be dropped if 'name' column doesn't exist
+
+      // placement
       region: code ?? null,
       status: "active",
 
-      // Provide manager_name (we saw a NOT NULL earlier)
+      // mgmt/audit (will be kept only if columns exist)
       manager_name:
-        pending.manager_name || nameFromEmail(approverEmail),
-
+        pending.manager_name ||
+        nameFromEmail(managerEmail || approverEmail),
       approved_by: approverEmail,
       approved_at: new Date().toISOString(),
     };
 
-    // Insert with auto-prune of unknown columns
-    const res = await insertWithPrune("reps", insertRow);
-    if (!res.ok) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
+    // Only keep columns that truly exist in public.reps
+    const payload = await keepExistingColumns("reps", candidate);
+
+    // Ensure at least 'email' exists in payload; otherwise we can't insert.
+    if (!("email" in payload)) {
+      return NextResponse.json(
+        {
+          error:
+            "Your 'reps' table does not have an 'email' column. Please tell me which email column it uses (e.g., rep_email), and I’ll update the code.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Insert
+    const { error: insErr } = await supabaseAdmin.from("reps").insert(payload);
+    if (insErr) {
+      return NextResponse.json({ error: insErr.message }, { status: 400 });
     }
 
     // Remove from pending
@@ -153,7 +187,7 @@ export async function POST(req: Request) {
     // Send password-set email (best-effort)
     try {
       // @ts-ignore - admin is available on service client
-      await supabaseAdmin.auth.admin.inviteUserByEmail(insertRow.email, {
+      await supabaseAdmin.auth.admin.inviteUserByEmail(payload.email, {
         redirectTo: `${
           process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com"
         }/reset-password`,
