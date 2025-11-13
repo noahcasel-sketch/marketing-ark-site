@@ -22,7 +22,6 @@ export default function LoginPage() {
     setInfo(null)
     setSent(false)
 
-    // 1) pre-check with our API
     const res = await fetch('/api/auth/check-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -31,7 +30,6 @@ export default function LoginPage() {
     const j = await res.json()
 
     if (j.status === 'approved') {
-      // 2) only approved addresses receive magic link
       setSending(true)
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
       const { error: otpErr } = await supabase.auth.signInWithOtp({
@@ -57,7 +55,16 @@ export default function LoginPage() {
       {sent ? (
         <p>Check your email for the sign-in link.</p>
       ) : (
-        <form onSubmit={onSubmit} className="card" style={{ padding: 16 }}>
+        <form
+          onSubmit={onSubmit}
+          className="card"
+          style={{
+            padding: 20,
+            display: 'grid',
+            gap: 16, // <-- adds clean spacing between input and button
+            background: 'var(--surface, #0f172a00)'
+          }}
+        >
           <input
             type="email"
             className="input"
@@ -65,10 +72,23 @@ export default function LoginPage() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="name@example.com"
             required
+            style={{ height: 44, paddingInline: 12, borderRadius: 10 }}
           />
-          {info && <p style={{ color: '#666', fontSize: 14 }}>{info}</p>}
-          {error && <p style={{ color: '#ff6b6b', fontSize: 14 }}>{error}</p>}
-          <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content' }}>
+
+          {info && <p style={{ color: '#94a3b8', fontSize: 14, marginTop: 4 }}>{info}</p>}
+          {error && <p style={{ color: '#ef4444', fontSize: 14, marginTop: 4 }}>{error}</p>}
+
+          <button
+            type="submit"
+            disabled={sending}
+            className="btn"
+            style={{
+              width: 'fit-content',
+              padding: '10px 16px',
+              borderRadius: 10,
+              fontWeight: 600
+            }}
+          >
             {sending ? 'Sending…' : 'Send magic link'}
           </button>
         </form>
