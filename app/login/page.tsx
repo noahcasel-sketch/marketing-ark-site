@@ -30,7 +30,7 @@ export default function LoginPage() {
 
     const norm = email.trim().toLowerCase()
 
-    // 1) Server pre-check
+    // 1) Server pre-check (approved/pending/inactive/not_found)
     let status: string | undefined
     try {
       const res = await fetch('/api/auth/check-email?email=' + encodeURIComponent(norm))
@@ -40,9 +40,7 @@ export default function LoginPage() {
       status = undefined
     }
 
-    // 2) Allow if approved OR locally whitelisted (belt & suspenders)
     const allow = status === 'approved' || LOCAL_WHITELIST.has(norm)
-
     if (!allow) {
       if (status === 'inactive') {
         setInfo('This account is no longer active. If this is incorrect, please contact your manager.')
@@ -54,20 +52,28 @@ export default function LoginPage() {
       return
     }
 
-    // 3) Ensure user exists in Supabase Auth (handles "signups disabled" cases)
-    const seedRes = await fetch('/api/auth/seed-user', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: norm })
-    })
-    if (!seedRes.ok) {
-      const j = await seedRes.json().catch(() => ({}))
-      setError(j.error || 'Unable to prepare account for login.')
-      return
+    // 2) Try server-generated magic link (preferred — instant redirect)
+    setSending(true)
+    try {
+      const s = await fetch('/api/auth/send-magic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: norm })
+      })
+      const j = await s.json()
+      if (s.ok && j?.action_link) {
+        window.location.href = j.action_link // direct login
+        return
+      }
+      // If server route fails, fall back to client OTP
+      if (!s.ok && j?.error) {
+        console.warn('send-magic failed:', j.error)
+      }
+    } catch (err) {
+      // network issue — fall back to client OTP
     }
 
-    // 4) Send magic link (do NOT attempt to create new user here)
-    setSending(true)
+    // 3) Fallback: client OTP (if server link not available)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
     const { error: otpErr } = await supabase.auth.signInWithOtp({
       email: norm,
@@ -79,8 +85,7 @@ export default function LoginPage() {
     setSending(false)
 
     if (otpErr) {
-      // Surface exact Supabase error (e.g., redirect allow-list issue)
-      setError(otpErr.message)
+      setError(otpErr.message) // surfaces exact supabase error
     } else {
       setSent(true)
     }
