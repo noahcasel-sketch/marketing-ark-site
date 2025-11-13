@@ -29,6 +29,20 @@ export default function LoginPage() {
     }
   }
 
+  async function setServerCookieFromCurrentSession() {
+    const { data } = await supabase.auth.getSession()
+    const access_token = data.session?.access_token
+    const refresh_token = data.session?.refresh_token
+    if (access_token && refresh_token) {
+      await fetch('/api/auth/set-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token, refresh_token }),
+        cache: 'no-store',
+      })
+    }
+  }
+
   async function onSubmitPassword(e: React.FormEvent) {
     e.preventDefault()
     setError(null); setInfo(null); setSentReset(false)
@@ -38,9 +52,27 @@ export default function LoginPage() {
     if (status !== 'approved') { setInfo('This email is not recognized in our database.'); return }
 
     setSending(true)
-    const { error: pwErr } = await supabase.auth.signInWithPassword({ email: normEmail, password })
+    const { data, error: pwErr } = await supabase.auth.signInWithPassword({
+      email: normEmail,
+      password
+    })
     setSending(false)
     if (pwErr) { setError(pwErr.message); return }
+
+    // IMPORTANT: set server cookie so /portal SSR sees you as logged in
+    if (!data.session) {
+      // some environments return null immediately; fetch explicitly
+      await setServerCookieFromCurrentSession()
+    } else {
+      const { access_token, refresh_token } = data.session
+      await fetch('/api/auth/set-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token, refresh_token }),
+        cache: 'no-store',
+      })
+    }
+
     window.location.href = '/portal'
   }
 
