@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const norm = (email || "").trim().toLowerCase();
     if (!norm) return NextResponse.json({ error: "Missing email" }, { status: 400 });
 
-    // Allow if: in whitelist OR staff OR reps(active)
+    // Gate: allowed if staff, whitelisted admin, or active rep
     let allowed = WHITELIST.has(norm);
 
     if (!allowed) {
@@ -41,17 +41,40 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Not allowed" }, { status: 403 });
     }
 
-    // Ensure the user exists in Supabase Auth. If already exists, ignore the error.
-    // (auth.admin.createUser will throw "User already registered" if present.)
-    // Casting to any to avoid TS friction depending on your client typing.
+    // Ensure user exists in Supabase Auth
     const admin = (supabaseAdmin as any).auth.admin;
+
+    // 1) Prefer checking first (avoids noisy create errors)
+    try {
+      if (admin?.getUserByEmail) {
+        const { data, error } = await admin.getUserByEmail(norm);
+        if (error) {
+          // fall through to createUser path
+          // (Some client versions throw for unknown users — we'll create below.)
+        } else if (data?.user) {
+          // Already exists -> we're done
+          return NextResponse.json({ ok: true, existed: true });
+        }
+      }
+    } catch {
+      // Safe to ignore — we’ll try createUser next.
+    }
+
+    // 2) Create if missing (ignore any "already ... registered" variants)
     const { error } = await admin.createUser({
       email: norm,
-      email_confirm: true, // mark as confirmed so OTP can proceed even with signups disabled
+      email_confirm: true,
     });
 
-    if (error && !/already registered/i.test(error.message)) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      // Normalize known duplicate message variants:
+      // e.g. "User already registered", "A user with this email address has already been registered"
+      const msg = String(error.message || "").toLowerCase();
+      const isAlready =
+        /already\s*registered/.test(msg) || /already\s*been\s*registered/.test(msg);
+      if (!isAlready) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ ok: true });
