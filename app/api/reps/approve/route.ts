@@ -1,11 +1,11 @@
 // app/api/reps/approve/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
-import { supabaseServer } from "../../../../lib/supabaseServer";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
+import { supabaseServer } from "../../../lib/supabaseServer";
 
 export const runtime = "nodejs";
 
-// tiny helper to prettify a name from an email if we don't have one
+// Derive a readable name if we only have an email
 function nameFromEmail(email?: string | null) {
   if (!email) return "Manager";
   const local = email.split("@")[0] || "";
@@ -18,7 +18,8 @@ function nameFromEmail(email?: string | null) {
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    // accept several common param names so UI calls don't break
+
+    // Accept common param names so UI variations don't break
     const pendingId =
       body.id ?? body.pending_id ?? body.pendingId ?? body.pid ?? null;
     const regionCode =
@@ -31,7 +32,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // who is approving?
+    // Who is approving?
     const sb = supabaseServer();
     const {
       data: { user },
@@ -41,23 +42,23 @@ export async function POST(req: Request) {
     }
     const approverEmail = user.email.toLowerCase();
 
-    // check staff role + allowed regions
+    // Check staff role & regions
     const { data: staff } = await supabaseAdmin
       .from("staff")
       .select("role, regions")
       .eq("email", approverEmail)
       .maybeSingle();
 
-    const role = staff?.role as "owner" | "regional" | undefined;
+    const role = (staff?.role as "owner" | "regional") || null;
     const approverRegions: string[] = Array.isArray(staff?.regions)
       ? (staff!.regions as string[])
       : [];
 
-    if (!role || (role !== "owner" && role !== "regional")) {
+    if (!role) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // fetch pending rep row
+    // Load the pending rep row
     const { data: pending, error: pErr } = await supabaseAdmin
       .from("pending_reps")
       .select("*")
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // region to use (UI may send it; otherwise take from pending)
+    // Resolve region code (UI may provide, else use what's on the row)
     const code =
       regionCode ||
       pending.region ||
@@ -79,7 +80,7 @@ export async function POST(req: Request) {
       pending.team ||
       null;
 
-    // region info -> manager email
+    // Region manager / approver
     let managerEmail: string | null = null;
     if (code) {
       const { data: region } = await supabaseAdmin
@@ -91,11 +92,10 @@ export async function POST(req: Request) {
         (region?.manager_email as string | null) ??
         (role === "regional" ? approverEmail : null);
     } else if (role === "regional") {
-      // if no region on the row, use the approver as manager
       managerEmail = approverEmail;
     }
 
-    // regional users can only approve their own regions (if a code exists)
+    // Regional can only approve within assigned regions (when a code exists)
     if (
       role === "regional" &&
       code &&
@@ -108,51 +108,51 @@ export async function POST(req: Request) {
       );
     }
 
+    // Compose SAFE minimal insert (only columns that should exist everywhere)
     const repName =
       pending.name ||
       pending.full_name ||
       `${pending.first_name ?? ""} ${pending.last_name ?? ""}`.trim() ||
       pending.email;
 
-    const insertRow = {
+    const baseInsert: Record<string, any> = {
+      // core identity
       name: repName,
       email: (pending.email as string).toLowerCase(),
-      phone: pending.phone ?? null,
-      address: pending.address ?? null,
-      city: pending.city ?? null,
-      state: pending.state ?? null,
-      zip: pending.zip ?? null,
-      region: code ?? null,
-      status: "active" as const,
 
-      // ✅ Provide non-null values so NOT NULL constraints are satisfied
+      // org placement
+      region: code ?? null,
+      status: "active",
+
+      // management / audit
       manager_email: managerEmail ?? approverEmail,
       manager_name:
         pending.manager_name ||
         (managerEmail ? nameFromEmail(managerEmail) : nameFromEmail(approverEmail)),
-
       approved_by: approverEmail,
       approved_at: new Date().toISOString(),
     };
 
-    // insert into reps
-    const { error: insErr } = await supabaseAdmin.from("reps").insert(insertRow);
+    // 🚫 DO NOT include address/phone/city/zip here — your table doesn't have them.
+    // If you later add those columns, we can extend this safely.
+
+    // Insert the new rep
+    const { error: insErr } = await supabaseAdmin.from("reps").insert(baseInsert);
     if (insErr) {
       return NextResponse.json({ error: insErr.message }, { status: 400 });
     }
 
-    // remove from pending
+    // Remove from pending
     await supabaseAdmin.from("pending_reps").delete().eq("id", pendingId);
 
-    // (nice-to-have) send reset/invite so they can set password
+    // Send password-set email (nice-to-have; ignores failure if disabled)
     try {
-      // supabase-js v2
       // @ts-ignore - admin is available on service client
-      await supabaseAdmin.auth.admin.inviteUserByEmail(insertRow.email, {
+      await supabaseAdmin.auth.admin.inviteUserByEmail(baseInsert.email, {
         redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com"}/reset-password`,
       });
     } catch {
-      // ignore if disabled
+      /* ignore */
     }
 
     return NextResponse.json({ ok: true });
