@@ -5,21 +5,46 @@ import { supabaseServer } from "../../../../lib/supabaseServer";
 
 export const runtime = "nodejs";
 
-// Derive a readable name if we only have an email
+// Make a readable name from an email if needed
 function nameFromEmail(email?: string | null) {
   if (!email) return "Manager";
   const local = email.split("@")[0] || "";
-  return local
-    .replace(/[._-]+/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase())
-    .trim() || "Manager";
+  return (
+    local
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (m) => m.toUpperCase())
+      .trim() || "Manager"
+  );
+}
+
+// Try inserting; if PostgREST says a column doesn't exist, drop it and retry.
+async function insertWithPrune(table: string, row: Record<string, any>) {
+  let payload = { ...row };
+  for (let i = 0; i < 6; i++) {
+    const { error } = await supabaseAdmin.from(table).insert(payload);
+    if (!error) return { ok: true as const };
+
+    const msg = (error.message || "").toLowerCase();
+
+    // Example error: "Could not find the 'manager_email' column of 'reps' in the schema cache"
+    const m = /could not find the '([^']+)' column/.exec(error.message || "");
+    if (m && payload[m[1]] !== undefined) {
+      // Drop the offending column and retry
+      delete payload[m[1]];
+      continue;
+    }
+
+    // NOT NULL violation hint: let the caller handle (we already set manager_name below)
+    return { ok: false as const, error: error.message || "Insert failed" };
+  }
+  return { ok: false as const, error: "Insert failed after retries" };
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // Accept common param names so UI variations don't break
+    // Accept several common param names
     const pendingId =
       body.id ?? body.pending_id ?? body.pendingId ?? body.pid ?? null;
     const regionCode =
@@ -32,7 +57,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Who is approving?
+    // Approver (session)
     const sb = supabaseServer();
     const {
       data: { user },
@@ -42,7 +67,7 @@ export async function POST(req: Request) {
     }
     const approverEmail = user.email.toLowerCase();
 
-    // Check staff role & regions
+    // Staff role & allowed regions
     const { data: staff } = await supabaseAdmin
       .from("staff")
       .select("role, regions")
@@ -58,7 +83,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
-    // Load the pending rep row
+    // Pending rep row
     const { data: pending, error: pErr } = await supabaseAdmin
       .from("pending_reps")
       .select("*")
@@ -72,7 +97,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Resolve region code (UI may provide, else use what's on the row)
+    // Region code to use
     const code =
       regionCode ||
       pending.region ||
@@ -80,22 +105,7 @@ export async function POST(req: Request) {
       pending.team ||
       null;
 
-    // Region manager / approver
-    let managerEmail: string | null = null;
-    if (code) {
-      const { data: region } = await supabaseAdmin
-        .from("regions")
-        .select("manager_email, code")
-        .eq("code", code)
-        .maybeSingle();
-      managerEmail =
-        (region?.manager_email as string | null) ??
-        (role === "regional" ? approverEmail : null);
-    } else if (role === "regional") {
-      managerEmail = approverEmail;
-    }
-
-    // Regional can only approve within assigned regions (when a code exists)
+    // Regional users can only approve within their regions (when a code exists)
     if (
       role === "regional" &&
       code &&
@@ -108,48 +118,45 @@ export async function POST(req: Request) {
       );
     }
 
-    // Compose SAFE minimal insert (only columns that should exist everywhere)
+    // Build a SAFE minimal insert
     const repName =
       pending.name ||
       pending.full_name ||
       `${pending.first_name ?? ""} ${pending.last_name ?? ""}`.trim() ||
       pending.email;
 
-    const baseInsert: Record<string, any> = {
-      // core identity
+    // Only include fields that are common and likely to exist.
+    // We purposely OMIT manager_email / address / city / zip / phone, etc.
+    const insertRow: Record<string, any> = {
       name: repName,
-      email: (pending.email as string).toLowerCase(),
-
-      // org placement
+      email: String(pending.email || "").toLowerCase(),
       region: code ?? null,
       status: "active",
 
-      // management / audit
-      manager_email: managerEmail ?? approverEmail,
+      // Provide manager_name (we saw a NOT NULL earlier)
       manager_name:
-        pending.manager_name ||
-        (managerEmail ? nameFromEmail(managerEmail) : nameFromEmail(approverEmail)),
+        pending.manager_name || nameFromEmail(approverEmail),
+
       approved_by: approverEmail,
       approved_at: new Date().toISOString(),
     };
 
-    // 🚫 DO NOT include address/phone/city/zip here — your table doesn't have them.
-    // If you later add those columns, we can extend this safely.
-
-    // Insert the new rep
-    const { error: insErr } = await supabaseAdmin.from("reps").insert(baseInsert);
-    if (insErr) {
-      return NextResponse.json({ error: insErr.message }, { status: 400 });
+    // Insert with auto-prune of unknown columns
+    const res = await insertWithPrune("reps", insertRow);
+    if (!res.ok) {
+      return NextResponse.json({ error: res.error }, { status: 400 });
     }
 
     // Remove from pending
     await supabaseAdmin.from("pending_reps").delete().eq("id", pendingId);
 
-    // Send password-set email (nice-to-have; ignores failure if disabled)
+    // Send password-set email (best-effort)
     try {
       // @ts-ignore - admin is available on service client
-      await supabaseAdmin.auth.admin.inviteUserByEmail(baseInsert.email, {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com"}/reset-password`,
+      await supabaseAdmin.auth.admin.inviteUserByEmail(insertRow.email, {
+        redirectTo: `${
+          process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com"
+        }/reset-password`,
       });
     } catch {
       /* ignore */
@@ -163,4 +170,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
