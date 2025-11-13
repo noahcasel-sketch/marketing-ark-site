@@ -12,23 +12,25 @@ export async function POST(req: Request) {
     }
     const norm = email.trim().toLowerCase();
 
-    // 1) Staff are always approved (owner + regionals)
+    // 1) Staff (owner/regionals) are always allowed
     const { data: staff } = await supabaseAdmin
       .from("staff")
       .select("email")
       .eq("email", norm)
       .maybeSingle();
-
     if (staff) return NextResponse.json({ status: "approved" });
 
-    // 2) Approved reps?
+    // 2) Check reps (include status)
     const { data: rep } = await supabaseAdmin
       .from("reps")
-      .select("email")
+      .select("email, status")
       .eq("email", norm)
       .maybeSingle();
 
-    if (rep) return NextResponse.json({ status: "approved" });
+    if (rep) {
+      if (rep.status === "inactive") return NextResponse.json({ status: "inactive" });
+      return NextResponse.json({ status: "approved" });
+    }
 
     // 3) Pending?
     const { data: pend } = await supabaseAdmin
@@ -36,7 +38,6 @@ export async function POST(req: Request) {
       .select("email")
       .eq("email", norm)
       .maybeSingle();
-
     if (pend) return NextResponse.json({ status: "pending" });
 
     // 4) Not found
