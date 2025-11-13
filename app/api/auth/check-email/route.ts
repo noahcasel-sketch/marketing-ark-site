@@ -12,26 +12,34 @@ export async function POST(req: Request) {
     }
     const norm = email.trim().toLowerCase();
 
-    // Is approved?
-    const { data: rep, error: rErr } = await supabaseAdmin
+    // 1) Staff are always approved (owner + regionals)
+    const { data: staff } = await supabaseAdmin
+      .from("staff")
+      .select("email")
+      .eq("email", norm)
+      .maybeSingle();
+
+    if (staff) return NextResponse.json({ status: "approved" });
+
+    // 2) Approved reps?
+    const { data: rep } = await supabaseAdmin
       .from("reps")
       .select("email")
-      .ilike("email", norm)
+      .eq("email", norm)
       .maybeSingle();
 
-    if (rErr) console.error(rErr);
     if (rep) return NextResponse.json({ status: "approved" });
 
-    // Is pending?
-    const { data: pend, error: pErr } = await supabaseAdmin
+    // 3) Pending?
+    const { data: pend } = await supabaseAdmin
       .from("pending_reps")
       .select("email")
-      .ilike("email", norm)
+      .eq("email", norm)
       .maybeSingle();
 
-    if (pErr) console.error(pErr);
     if (pend) return NextResponse.json({ status: "pending" });
 
+    // 4) Not found
     return NextResponse.json({ status: "not_found" });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
