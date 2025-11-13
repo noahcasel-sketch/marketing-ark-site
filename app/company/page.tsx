@@ -1,7 +1,7 @@
 // app/company/page.tsx
 import { supabaseServer } from "../../lib/supabaseServer";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
-import RepAdminList, { AdminItem } from "../../components/RepAdminList";
+import RepAdminList, { AdminItem } from "../components/RepAdminList";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,9 +13,7 @@ const ALL_REGIONS: RegionCode[] = ["ARK", "AKM", "HC"];
 
 export default async function CompanyAdminPage() {
   const supabase = supabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   if (!user?.email) {
     return (
@@ -36,12 +34,10 @@ export default async function CompanyAdminPage() {
 
   const items: AdminItem[] = [];
 
-  // PENDING across all regions
+  // Pending across all regions
   const { data: pend, error: pErr } = await supabaseAdmin
     .from("pending_reps")
-    .select(
-      "id, submitted_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
-    )
+    .select("id, submitted_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path")
     .order("submitted_at", { ascending: false });
 
   if (pErr) {
@@ -55,10 +51,7 @@ export default async function CompanyAdminPage() {
   for (const r of pend || []) {
     let id_url: string | null = null;
     if (r.id_photo_path) {
-      const { data } = await supabaseAdmin
-        .storage
-        .from("id-photos")
-        .createSignedUrl(r.id_photo_path, 60 * 5);
+      const { data } = await supabaseAdmin.storage.from("id-photos").createSignedUrl(r.id_photo_path, 60 * 5);
       id_url = data?.signedUrl ?? null;
     }
     items.push({
@@ -74,22 +67,17 @@ export default async function CompanyAdminPage() {
     });
   }
 
-  // REPS across all regions
+  // Reps across all regions
   const { data: reps } = await supabaseAdmin
     .from("reps")
-    .select(
-      "id, created_at, status, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
-    )
+    .select("id, created_at, status, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path")
     .in("region_code", ALL_REGIONS)
     .order("created_at", { ascending: false });
 
   for (const r of reps || []) {
     let id_url: string | null = null;
     if (r.id_photo_path) {
-      const { data } = await supabaseAdmin
-        .storage
-        .from("id-photos")
-        .createSignedUrl(r.id_photo_path, 60 * 5);
+      const { data } = await supabaseAdmin.storage.from("id-photos").createSignedUrl(r.id_photo_path, 60 * 5);
       id_url = data?.signedUrl ?? null;
     }
     items.push({
@@ -106,7 +94,7 @@ export default async function CompanyAdminPage() {
     });
   }
 
-  // sort newest first
+  // newest first
   items.sort((a, b) => {
     const da = new Date(a.submitted_at || a.created_at || 0).getTime();
     const db = new Date(b.submitted_at || b.created_at || 0).getTime();
