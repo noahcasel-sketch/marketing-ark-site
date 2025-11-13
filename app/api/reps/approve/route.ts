@@ -21,7 +21,6 @@ function splitFullName(v?: string | null) {
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
-// Probe whether a column exists by doing a no-op select
 async function columnExists(table: string, col: string): Promise<boolean> {
   try {
     const { error } = await supabaseAdmin.from(table).select(col).limit(0);
@@ -31,10 +30,12 @@ async function columnExists(table: string, col: string): Promise<boolean> {
   }
 }
 
-// Figure out which email column your reps table uses
 async function pickEmailColumn(table: string): Promise<string | null> {
   const candidates = ["email", "rep_email", "user_email", "contact_email"];
-  for (const c of candidates) if (await columnExists(table, c)) return c;
+  for (const c of candidates) {
+    const ok = await columnExists(table, c);
+    if (ok) return c;
+  }
   return null;
 }
 
@@ -45,18 +46,19 @@ type FallbackCtx = {
   regionCode: string | null;
 };
 
+function fromPending(p: PendingRow, keys: string[]) {
+  for (const k of keys) {
+    const v = p?.[k];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return undefined;
+}
+
 function guessFallback(col: string, ctx: FallbackCtx): any {
   const p = ctx.pending;
-  const email =
-    (p.email ?? p.rep_email ?? p.user_email ?? p.contact_email ?? "").toString().toLowerCase();
-
-  const byName = (keys: string[]) => {
-    for (const k of keys) {
-      const v = p[k];
-      if (v !== undefined && v !== null && v !== "") return v;
-    }
-    return undefined;
-  };
+  const email = String(
+    fromPending(p, ["email", "rep_email", "user_email", "contact_email"]) || ""
+  ).toLowerCase();
 
   const lower = col.toLowerCase();
 
@@ -67,27 +69,30 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
 
   // names
   if (lower.includes("first_name")) {
-    const v = byName(["legal_first_name", "first_name", "fname", "given_name"]);
-    if (v !== undefined) return v;
-    const split = splitFullName(byName(["full_name", "name"]) as string | undefined);
+    const direct =
+      fromPending(p, ["legal_first_name", "first_name", "fname", "given_name"]);
+    if (direct !== undefined) return direct;
+    const split = splitFullName(
+      (fromPending(p, ["full_name", "name"]) as string | undefined) || ""
+    );
     return split.first ? split.first : "Unknown";
   }
-
   if (lower.includes("last_name")) {
-    const v = byName(["legal_last_name", "last_name", "lname", "surname"]);
-    if (v !== undefined) return v;
-    const split = splitFullName(byName(["full_name", "name"]) as string | undefined);
+    const direct =
+      fromPending(p, ["legal_last_name", "last_name", "lname", "surname"]);
+    if (direct !== undefined) return direct;
+    const split = splitFullName(
+      (fromPending(p, ["full_name", "name"]) as string | undefined) || ""
+    );
     return split.last ? split.last : "Unknown";
   }
 
   if (lower === "name") {
-    const n = byName(["name", "full_name"]);
-    const base = n !== undefined ? n : email;
-    return base ? base : "Unknown";
+    const n = fromPending(p, ["name", "full_name"]);
+    return n !== undefined ? n : email ? email : "Unknown";
   }
-
   if (lower === "manager_name") {
-    const m = byName(["manager_name"]);
+    const m = fromPending(p, ["manager_name"]);
     return m !== undefined ? m : titleFromEmail(ctx.approverEmail);
   }
 
@@ -100,36 +105,38 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
   if (lower === "status") return "active";
 
   // timestamps / dates
-  if (lower.endsWith("_at") || lower.includes("timestamp")) return new Date().toISOString();
+  if (lower.endsWith("_at") || lower.includes("timestamp"))
+    return new Date().toISOString();
   if (lower.includes("date")) return new Date().toISOString().slice(0, 10);
 
   // boolean-ish
-  if (lower.startsWith("is_") || lower.includes("enabled") || lower.includes("active_flag")) return false;
+  if (
+    lower.startsWith("is_") ||
+    lower.includes("enabled") ||
+    lower.includes("active_flag")
+  )
+    return false;
 
   // numeric-ish
-  if (lower.includes("count") || lower.includes("qty") || lower.includes("number")) return 0;
+  if (
+    lower.includes("count") ||
+    lower.includes("qty") ||
+    lower.includes("number")
+  )
+    return 0;
 
   // phones/addresses
-  if (lower.includes("phone")) {
-    const v = byName(["phone", "mobile", "phone_number"]);
-    return v !== undefined ? v : "0000000000";
-  }
-  if (lower.includes("zip") || lower.includes("postal")) {
-    const v = byName(["zip", "postal_code"]);
-    return v !== undefined ? v : "00000";
-  }
-  if (lower.includes("city")) {
-    const v = byName(["city"]);
-    return v !== undefined ? v : "N/A";
-  }
-  if (lower.includes("state")) {
-    const v = byName(["state", "province"]);
-    return v !== undefined ? v : "N/A";
-  }
-  if (lower.includes("address")) {
-    const v = byName(["address", "street", "street1"]);
-    return v !== undefined ? v : "N/A";
-  }
+  if (lower.includes("phone"))
+    return (
+      fromPending(p, ["phone", "mobile", "phone_number"]) || "0000000000"
+    );
+  if (lower.includes("zip") || lower.includes("postal"))
+    return fromPending(p, ["zip", "postal_code"]) || "00000";
+  if (lower.includes("city")) return fromPending(p, ["city"]) || "N/A";
+  if (lower.includes("state"))
+    return fromPending(p, ["state", "province"]) || "N/A";
+  if (lower.includes("address"))
+    return fromPending(p, ["address", "street", "street1"]) || "N/A";
 
   // audit-ish
   if (lower === "approved_by") return ctx.approverEmail;
@@ -142,35 +149,51 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
 function coerceByTypeHint(current: any, msg: string): any {
   const m = msg.toLowerCase();
   if (m.includes("type boolean")) return false;
-  if (m.includes("type integer") || m.includes("type bigint") || m.includes("type numeric") || m.includes("type double"))
+  if (
+    m.includes("type integer") ||
+    m.includes("type bigint") ||
+    m.includes("type numeric") ||
+    m.includes("type double")
+  )
     return 0;
-  if (m.includes("timestamp") || m.includes("timestamptz")) return new Date().toISOString();
+  if (m.includes("timestamp") || m.includes("timestamptz"))
+    return new Date().toISOString();
   if (m.includes("type date")) return new Date().toISOString().slice(0, 10);
   return current ?? "N/A";
 }
 
 /**
  * Try insert; on NOT NULL errors, add a value for the offending column and retry.
- * On type errors, coerce and retry.
+ * Handles the Postgres message variant: `null value in column "X" of relation "reps" violates not-null constraint`.
  */
-async function robustInsert(table: string, base: Record<string, any>, ctx: FallbackCtx) {
+async function robustInsert(
+  table: string,
+  base: Record<string, any>,
+  ctx: FallbackCtx
+) {
   let payload = { ...base };
   for (let i = 0; i < 20; i++) {
     const { error } = await supabaseAdmin.from(table).insert(payload);
     if (!error) return { ok: true as const, payload };
     const msg = error.message || "";
 
-    // NOT NULL -> "null value in column \"X\" violates not-null constraint"
-    let m = /null value in column "([^"]+)" violates not-null constraint/i.exec(msg);
+    // Match both forms (with or without `of relation "reps"`)
+    // e.g., null value in column "legal_first_name" of relation "reps" violates not-null constraint
+    // or   null value in column "legal_first_name" violates not-null constraint
+    let m =
+      /null value in column "([^"]+)"(?: of relation "[^"]+")? violates not-null constraint/i.exec(
+        msg
+      );
     if (m) {
       const col = m[1];
-      if (await columnExists(table, col)) {
+      const exists = await columnExists(table, col);
+      if (exists) {
         payload[col] = guessFallback(col, ctx);
       }
       continue; // retry
     }
 
-    // Column doesn't exist (if somehow we included one)
+    // Column doesn't exist (defensive)
     m = /could not find the '([^']+)' column/i.exec(msg);
     if (m) {
       delete (payload as any)[m[1]];
@@ -186,7 +209,7 @@ async function robustInsert(table: string, base: Record<string, any>, ctx: Fallb
       continue;
     }
 
-    // Check constraint (e.g., status)
+    // Check constraint (e.g., status IN (...))
     if (/violates check constraint/i.test(msg) && "status" in payload) {
       payload["status"] = "active";
       continue;
@@ -263,9 +286,17 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const pendingEmailRaw =
-      pending[emailCol] ?? pending.email ?? pending.rep_email ?? pending.user_email ?? pending.contact_email ?? "";
-    const pendingEmail = String(pendingEmailRaw || "").toLowerCase();
+    const pendingEmail =
+      String(
+        fromPending(pending, [
+          emailCol,
+          "email",
+          "rep_email",
+          "user_email",
+          "contact_email",
+        ]) || ""
+      ).toLowerCase();
+
     if (!pendingEmail) {
       return NextResponse.json(
         { error: "Pending rep has no email value. Add an email field to pending_reps." },
@@ -273,12 +304,11 @@ export async function POST(req: Request) {
       );
     }
 
-    // Base payload: start tiny and safe
-    const base: Record<string, any> = {
+    // Base payload: start small but proactively set the common NOT NULL offenders if those columns exist
+    const payload: Record<string, any> = {
       [emailCol]: pendingEmail,
     };
 
-    // include region_code / region only if those columns exist
     if (await columnExists("reps", "region_code")) {
       if (!regionCode) {
         return NextResponse.json(
@@ -286,19 +316,37 @@ export async function POST(req: Request) {
           { status: 400 }
         );
       }
-      base["region_code"] = regionCode;
+      payload["region_code"] = regionCode;
     }
-    if (await columnExists("reps", "region")) base["region"] = regionCode ?? null;
+    if (await columnExists("reps", "region")) payload["region"] = regionCode ?? null;
+    if (await columnExists("reps", "status")) payload["status"] = "active";
+    if (await columnExists("reps", "manager_name")) payload["manager_name"] = titleFromEmail(approverEmail);
+    if (await columnExists("reps", "approved_by")) payload["approved_by"] = approverEmail;
+    if (await columnExists("reps", "approved_at")) payload["approved_at"] = new Date().toISOString();
 
-    // nice-to-haves if columns exist (kept minimal to avoid column-not-found errors)
-    if (await columnExists("reps", "status")) base["status"] = "active";
-    if (await columnExists("reps", "manager_name")) base["manager_name"] = titleFromEmail(approverEmail);
-    if (await columnExists("reps", "approved_by")) base["approved_by"] = approverEmail;
-    if (await columnExists("reps", "approved_at")) base["approved_at"] = new Date().toISOString();
+    // ✅ Pre-populate legal_first_name / legal_last_name when present
+    if (await columnExists("reps", "legal_first_name")) {
+      const v =
+        fromPending(pending, ["legal_first_name", "first_name", "given_name", "fname"]) ||
+        splitFullName(
+          (fromPending(pending, ["full_name", "name"]) as string | undefined) || ""
+        ).first ||
+        "Unknown";
+      payload["legal_first_name"] = v;
+    }
+    if (await columnExists("reps", "legal_last_name")) {
+      const v =
+        fromPending(pending, ["legal_last_name", "last_name", "surname", "lname"]) ||
+        splitFullName(
+          (fromPending(pending, ["full_name", "name"]) as string | undefined) || ""
+        ).last ||
+        "Unknown";
+      payload["legal_last_name"] = v;
+    }
 
     // Try robust insert; on NOT NULL/type errors we’ll auto-fill and retry
     const ctx: FallbackCtx = { pending, approverEmail, regionCode };
-    const res = await robustInsert("reps", base, ctx);
+    const res = await robustInsert("reps", payload, ctx);
     if (!res.ok) {
       return NextResponse.json({ error: res.error }, { status: 400 });
     }
