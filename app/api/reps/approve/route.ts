@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
 import { supabaseServer } from "../../../../lib/supabaseServer";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -21,6 +22,7 @@ function splitFullName(v?: string | null) {
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
+// Probe whether a column exists by doing a no-op select
 async function columnExists(table: string, col: string): Promise<boolean> {
   try {
     const { error } = await supabaseAdmin.from(table).select(col).limit(0);
@@ -30,12 +32,10 @@ async function columnExists(table: string, col: string): Promise<boolean> {
   }
 }
 
+// Figure out which email column your reps table uses
 async function pickEmailColumn(table: string): Promise<string | null> {
   const candidates = ["email", "rep_email", "user_email", "contact_email"];
-  for (const c of candidates) {
-    const ok = await columnExists(table, c);
-    if (ok) return c;
-  }
+  for (const c of candidates) if (await columnExists(table, c)) return c;
   return null;
 }
 
@@ -89,7 +89,8 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
 
   if (lower === "name") {
     const n = fromPending(p, ["name", "full_name"]);
-    return n !== undefined ? n : email ? email : "Unknown";
+    const base = n !== undefined ? n : email;
+    return base ? base : "Unknown";
   }
   if (lower === "manager_name") {
     const m = fromPending(p, ["manager_name"]);
@@ -177,17 +178,14 @@ async function robustInsert(
     if (!error) return { ok: true as const, payload };
     const msg = error.message || "";
 
-    // Match both forms (with or without `of relation "reps"`)
-    // e.g., null value in column "legal_first_name" of relation "reps" violates not-null constraint
-    // or   null value in column "legal_first_name" violates not-null constraint
+    // NOT NULL -> with or without `of relation "reps"`
     let m =
       /null value in column "([^"]+)"(?: of relation "[^"]+")? violates not-null constraint/i.exec(
         msg
       );
     if (m) {
       const col = m[1];
-      const exists = await columnExists(table, col);
-      if (exists) {
+      if (await columnExists(table, col)) {
         payload[col] = guessFallback(col, ctx);
       }
       continue; // retry
@@ -324,7 +322,7 @@ export async function POST(req: Request) {
     if (await columnExists("reps", "approved_by")) payload["approved_by"] = approverEmail;
     if (await columnExists("reps", "approved_at")) payload["approved_at"] = new Date().toISOString();
 
-    // ✅ Pre-populate legal_first_name / legal_last_name when present
+    // Pre-populate legal_first_name / legal_last_name if present
     if (await columnExists("reps", "legal_first_name")) {
       const v =
         fromPending(pending, ["legal_first_name", "first_name", "given_name", "fname"]) ||
@@ -344,6 +342,15 @@ export async function POST(req: Request) {
       payload["legal_last_name"] = v;
     }
 
+    // 🔁 Copy ANY same-named columns from pending → reps (includes things like id photos)
+    // e.g., id_photo_url, id_photo, id_url, selfie_url, gov_id_front, etc.
+    for (const k of Object.keys(pending)) {
+      if (payload[k] !== undefined) continue; // don't override what we set
+      if (await columnExists("reps", k)) {
+        payload[k] = pending[k];
+      }
+    }
+
     // Try robust insert; on NOT NULL/type errors we’ll auto-fill and retry
     const ctx: FallbackCtx = { pending, approverEmail, regionCode };
     const res = await robustInsert("reps", payload, ctx);
@@ -354,14 +361,51 @@ export async function POST(req: Request) {
     // delete from pending
     await supabaseAdmin.from("pending_reps").delete().eq("id", pendingId);
 
-    // send invite to set password (best-effort)
+    // ----------------------- password email flow -----------------------
+    const SITE =
+      process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com";
+
+    // First try: invite (works when the user doesn't exist yet)
+    let emailed = false;
     try {
       // @ts-ignore - supabase-js v2 admin API
       await supabaseAdmin.auth.admin.inviteUserByEmail(pendingEmail, {
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || "https://www.marketing-ark.com"}/reset-password`,
+        redirectTo: `${SITE}/reset-password`,
       });
-    } catch {
-      /* ignore */
+      emailed = true;
+    } catch (e: any) {
+      // common case: user already exists -> fall through
+    }
+
+    // If invite didn't go, send a password reset email
+    if (!emailed) {
+      try {
+        const supabaseAnon = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+        );
+        await supabaseAnon.auth.resend({
+          type: "recovery",
+          email: pendingEmail,
+          options: { redirectTo: `${SITE}/reset-password` },
+        });
+        emailed = true;
+      } catch (e: any) {
+        // last resort: generate link and log it so you can see it in Vercel logs
+        try {
+          // @ts-ignore - admin API
+          const { data: linkData } = await supabaseAdmin.auth.admin.generateLink({
+            type: "recovery",
+            email: pendingEmail,
+            options: { redirectTo: `${SITE}/reset-password` },
+          });
+          console.warn(
+            `[approve] Recovery link for ${pendingEmail}: ${linkData?.action_link}`
+          );
+        } catch (e2) {
+          console.error("[approve] Failed to generate recovery link:", e2);
+        }
+      }
     }
 
     return NextResponse.json({ ok: true });
