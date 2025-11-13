@@ -1,7 +1,7 @@
 // app/api/reps/approve/route.ts
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "../../../../../lib/supabaseAdmin";
-import { supabaseServer } from "../../../../../lib/supabaseServer";
+import { supabaseAdmin } from "../../../../lib/supabaseAdmin";
+import { supabaseServer } from "../../../../lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -319,3 +319,4 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
+
