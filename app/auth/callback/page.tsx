@@ -13,24 +13,38 @@ export default function AuthCallback() {
   useEffect(() => {
     const hash = typeof window !== 'undefined' ? window.location.hash : ''
     const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash)
-    const type = params.get('type') // e.g., 'recovery', 'invite', 'magiclink'
+
+    const type = params.get('type') // 'magiclink' | 'recovery' | 'invite' | etc.
     const access_token = params.get('access_token')
     const refresh_token = params.get('refresh_token')
 
     async function run() {
-      // Store tokens so session is active in either branch
+      // 1) Make the CLIENT aware (so header/UI updates immediately)
       if (access_token && refresh_token) {
         await supabase.auth.setSession({ access_token, refresh_token }).catch(() => {})
       }
 
+      // 2) Make the SERVER aware (cookie) so pages like /portal see you as logged in
+      if (access_token && refresh_token) {
+        try {
+          await fetch('/api/auth/set-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_token, refresh_token }),
+            cache: 'no-store',
+          })
+        } catch {}
+      }
+
+      // 3) Route based on link type
       if (type === 'recovery' || type === 'invite') {
-        // Go to reset screen and keep the tokens in the hash
+        // Keep the hash so /reset-password can read the tokens if needed
         window.location.replace('/reset-password' + window.location.hash)
       } else {
-        // Normal magic link / email login
         window.location.replace('/portal')
       }
     }
+
     run()
   }, [])
 
