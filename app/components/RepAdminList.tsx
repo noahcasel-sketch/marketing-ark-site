@@ -1,4 +1,4 @@
-// components/RepAdminList.tsx
+// app/components/RepAdminList.tsx
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
@@ -15,8 +15,7 @@ export type AdminItem = {
   submitted_at?: string | null; // for awaiting
   created_at?: string | null;   // for reps
   id_url?: string | null;
-  // For reps only:
-  is_rep?: boolean;
+  is_rep?: boolean;             // true only for reps table rows
 };
 
 function StatusDot({ status }: { status: "awaiting" | "active" | "inactive" }) {
@@ -40,11 +39,11 @@ function StatusDot({ status }: { status: "awaiting" | "active" | "inactive" }) {
 export default function RepAdminList({ items }: { items: AdminItem[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [filters, setFilters] = useState<{
-    awaiting: boolean;
-    active: boolean;
-    inactive: boolean;
-  }>({ awaiting: false, active: false, inactive: false });
+  const [filters, setFilters] = useState<{ awaiting: boolean; active: boolean; inactive: boolean }>({
+    awaiting: false,
+    active: false,
+    inactive: false,
+  });
   const [isPending, start] = useTransition();
 
   const filtered = useMemo(() => {
@@ -52,16 +51,12 @@ export default function RepAdminList({ items }: { items: AdminItem[] }) {
     const anyFilter = filters.awaiting || filters.active || filters.inactive;
     return items.filter((it) => {
       const matchesQ =
-        !ql ||
-        it.name.toLowerCase().includes(ql) ||
-        it.email.toLowerCase().includes(ql);
-
+        !ql || it.name.toLowerCase().includes(ql) || it.email.toLowerCase().includes(ql);
       const matchesFilter = !anyFilter
         ? true
         : (it.status === "awaiting" && filters.awaiting) ||
           (it.status === "active" && filters.active) ||
           (it.status === "inactive" && filters.inactive);
-
       return matchesQ && matchesFilter;
     });
   }, [items, q, filters]);
@@ -104,15 +99,7 @@ export default function RepAdminList({ items }: { items: AdminItem[] }) {
   return (
     <div>
       {/* Search + Filters */}
-      <div
-        style={{
-          display: "flex",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-          marginBottom: 12,
-        }}
-      >
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
         <input
           placeholder="Search name or email…"
           value={q}
@@ -179,9 +166,7 @@ export default function RepAdminList({ items }: { items: AdminItem[] }) {
               {it.address && <div style={{ fontSize: 14 }}>{it.address}</div>}
               {it.id_url && (
                 <div style={{ marginTop: 6 }}>
-                  <a href={it.id_url} target="_blank" rel="noreferrer">
-                    View ID
-                  </a>
+                  <a href={it.id_url} target="_blank" rel="noreferrer">View ID</a>
                 </div>
               )}
             </div>
@@ -190,44 +175,23 @@ export default function RepAdminList({ items }: { items: AdminItem[] }) {
               {it.status === "awaiting" ? (
                 <button
                   onClick={() => approve(it.id)}
-                  disabled={isPending}
-                  style={{
-                    background: "#16a34a",
-                    color: "white",
-                    borderRadius: 8,
-                    padding: "8px 14px",
-                    fontWeight: 600,
-                  }}
+                  style={{ background: "#16a34a", color: "white", borderRadius: 8, padding: "8px 14px", fontWeight: 600 }}
                 >
-                  {isPending ? "Approving…" : "Approve"}
+                  Approve
                 </button>
               ) : it.status === "active" ? (
                 <button
                   onClick={() => setStatus(it.id, "inactive")}
-                  disabled={isPending}
-                  style={{
-                    background: "#ef4444",
-                    color: "white",
-                    borderRadius: 8,
-                    padding: "8px 14px",
-                    fontWeight: 600,
-                  }}
+                  style={{ background: "#ef4444", color: "white", borderRadius: 8, padding: "8px 14px", fontWeight: 600 }}
                 >
-                  {isPending ? "Working…" : "Mark inactive"}
+                  Mark inactive
                 </button>
               ) : (
                 <button
                   onClick={() => setStatus(it.id, "active")}
-                  disabled={isPending}
-                  style={{
-                    background: "#0ea5e9",
-                    color: "white",
-                    borderRadius: 8,
-                    padding: "8px 14px",
-                    fontWeight: 600,
-                  }}
+                  style={{ background: "#0ea5e9", color: "white", borderRadius: 8, padding: "8px 14px", fontWeight: 600 }}
                 >
-                  {isPending ? "Working…" : "Mark active"}
+                  Mark active
                 </button>
               )}
             </div>
