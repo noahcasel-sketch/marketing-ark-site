@@ -30,45 +30,59 @@ export default function LoginPage() {
 
     const norm = email.trim().toLowerCase()
 
-    // Call server precheck
+    // 1) Server pre-check
     let status: string | undefined
     try {
-      const res = await fetch('/api/auth/check-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: norm })
-      })
+      const res = await fetch('/api/auth/check-email?email=' + encodeURIComponent(norm))
       const j = await res.json()
       status = j.status
-    } catch (err) {
-      // ignore network hiccup; rely on local whitelist if applicable
+    } catch {
       status = undefined
     }
 
-    const allow =
-      status === 'approved' ||
-      (status === undefined && LOCAL_WHITELIST.has(norm)) || // fallback if API not reachable
-      LOCAL_WHITELIST.has(norm) // belt & suspenders
+    // 2) Allow if approved OR locally whitelisted (belt & suspenders)
+    const allow = status === 'approved' || LOCAL_WHITELIST.has(norm)
 
-    if (allow) {
-      setSending(true)
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
-      const { error: otpErr } = await supabase.auth.signInWithOtp({
-        email: norm,
-        options: { emailRedirectTo: `${siteUrl}/auth/callback` }
-      })
-      setSending(false)
-      if (otpErr) setError(otpErr.message)
-      else setSent(true)
+    if (!allow) {
+      if (status === 'inactive') {
+        setInfo('This account is no longer active. If this is incorrect, please contact your manager.')
+      } else if (status === 'pending') {
+        setInfo('This email is pending approval.')
+      } else {
+        setInfo('This email is not recognized in our database.')
+      }
       return
     }
 
-    if (status === 'inactive') {
-      setInfo('This account is no longer active. If this is incorrect, please contact your manager.')
-    } else if (status === 'pending') {
-      setInfo('This email is pending approval.')
+    // 3) Ensure user exists in Supabase Auth (handles "signups disabled" cases)
+    const seedRes = await fetch('/api/auth/seed-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: norm })
+    })
+    if (!seedRes.ok) {
+      const j = await seedRes.json().catch(() => ({}))
+      setError(j.error || 'Unable to prepare account for login.')
+      return
+    }
+
+    // 4) Send magic link (do NOT attempt to create new user here)
+    setSending(true)
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      email: norm,
+      options: {
+        emailRedirectTo: `${siteUrl}/auth/callback`,
+        shouldCreateUser: false
+      }
+    })
+    setSending(false)
+
+    if (otpErr) {
+      // Surface exact Supabase error (e.g., redirect allow-list issue)
+      setError(otpErr.message)
     } else {
-      setInfo('This email is not recognized in our database.')
+      setSent(true)
     }
   }
 
