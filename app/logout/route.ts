@@ -1,31 +1,22 @@
 // app/logout/route.ts
-import { NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { NextResponse } from "next/server";
+import { supabaseServer } from "../../lib/supabaseServer";
 
-export async function POST(req: Request) {
-  const url = new URL(req.url)
-  const res = NextResponse.redirect(new URL('/', url))
+export const runtime = "nodejs";
 
-  const cookieStore = cookies()
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          res.cookies.set({ name, value, ...options })
-        },
-        remove(name: string, options: CookieOptions) {
-          res.cookies.set({ name, value: '', ...options })
-        },
-      },
-    }
-  )
+async function doSignOut() {
+  const supabase = supabaseServer();
+  await supabase.auth.signOut();
+}
 
-  await supabase.auth.signOut()
-  return res
+export async function GET() {
+  await doSignOut();
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return NextResponse.redirect(new URL("/", base));
+}
+
+export async function POST() {
+  await doSignOut();
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return NextResponse.redirect(new URL("/", base));
 }
