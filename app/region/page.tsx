@@ -1,31 +1,27 @@
 // app/region/page.tsx
 import { supabaseServer } from "../../lib/supabaseServer";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
-import RepAdminList, { AdminItem } from "../../components/RepAdminList";
+import RepAdminList, { AdminItem } from "../components/RepAdminList";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 type RegionCode = "ARK" | "AKM" | "HC";
-
 const ALL_REGIONS: RegionCode[] = ["ARK", "AKM", "HC"];
 
 export default async function RegionApprovalsPage() {
   const supabase = supabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   if (!user?.email) {
     return (
       <main style={{ maxWidth: 980, margin: "48px auto" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Region Approvals</h1>
+        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Region — Team Management</h1>
         <p>Please <a href="/login">log in</a> to view this page.</p>
       </main>
     );
   }
 
-  // Permissions
   const caller = user.email.toLowerCase();
   const { data: staff } = await supabaseAdmin
     .from("staff")
@@ -43,29 +39,22 @@ export default async function RegionApprovalsPage() {
 
   const canSee = (code: RegionCode) =>
     staff.role === "owner" || (Array.isArray(staff.regions) && staff.regions.includes(code));
-
   const visible = ALL_REGIONS.filter(canSee);
 
-  // gather all items
   const items: AdminItem[] = [];
 
   for (const region of visible) {
     // pending
     const { data: pend } = await supabaseAdmin
       .from("pending_reps")
-      .select(
-        "id, submitted_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
-      )
+      .select("id, submitted_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path")
       .eq("region_code", region)
       .order("submitted_at", { ascending: false });
 
     for (const r of pend || []) {
       let id_url: string | null = null;
       if (r.id_photo_path) {
-        const { data } = await supabaseAdmin
-          .storage
-          .from("id-photos")
-          .createSignedUrl(r.id_photo_path, 60 * 5);
+        const { data } = await supabaseAdmin.storage.from("id-photos").createSignedUrl(r.id_photo_path, 60 * 5);
         id_url = data?.signedUrl ?? null;
       }
       items.push({
@@ -81,22 +70,17 @@ export default async function RegionApprovalsPage() {
       });
     }
 
-    // reps (active/inactive)
+    // reps
     const { data: reps } = await supabaseAdmin
       .from("reps")
-      .select(
-        "id, created_at, status, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path"
-      )
+      .select("id, created_at, status, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path")
       .eq("region_code", region)
       .order("created_at", { ascending: false });
 
     for (const r of reps || []) {
       let id_url: string | null = null;
       if (r.id_photo_path) {
-        const { data } = await supabaseAdmin
-          .storage
-          .from("id-photos")
-          .createSignedUrl(r.id_photo_path, 60 * 5);
+        const { data } = await supabaseAdmin.storage.from("id-photos").createSignedUrl(r.id_photo_path, 60 * 5);
         id_url = data?.signedUrl ?? null;
       }
       items.push({
@@ -114,7 +98,7 @@ export default async function RegionApprovalsPage() {
     }
   }
 
-  // sort newest first
+  // newest first
   items.sort((a, b) => {
     const da = new Date(a.submitted_at || a.created_at || 0).getTime();
     const db = new Date(b.submitted_at || b.created_at || 0).getTime();
