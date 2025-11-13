@@ -1,159 +1,204 @@
-"use client";
+// app/portal/contract/page.tsx
+import { supabaseServer } from "../../../lib/supabaseServer";
+import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
-import React, { useEffect, useMemo, useState } from "react";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-type Status = { contractSigned: boolean; w9Signed: boolean; total: number } | null;
-type DocItem = { name: string; url: string; created_at: string }[];
+type AnyRow = Record<string, any>;
 
-const DSA_URL = "https://docuseal.com/d/5gcuQfA4DStfea"; // Direct Seller Agreement (typed email inside)
-const W9_URL  = "https://docuseal.com/d/9k7XDpbubLzDho"; // W-9 (typed email inside)
+function isObject(v: any) {
+  return v && typeof v === "object" && !Array.isArray(v);
+}
 
-// Static forms component - memo'd so it won't rerender while typing
-const Forms = React.memo(function Forms() {
-  useEffect(() => {
-    // Load DocuSeal embed script exactly once
-    const existing = document.querySelector<HTMLScriptElement>('script[src="https://cdn.docuseal.com/js/form.js"]');
-    if (existing) return;
-    const s = document.createElement("script");
-    s.src = "https://cdn.docuseal.com/js/form.js";
-    s.async = true;
-    document.head.appendChild(s);
-  }, []);
+function rowHasEmail(row: AnyRow, email: string, depth = 0): boolean {
+  if (!row || depth > 5) return false;
+  const target = email.trim().toLowerCase();
 
-  return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr",
-        gap: 24,
-      }}
-    >
-      <section style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-        <h2 style={{ marginTop: 0 }}>Direct Seller Agreement</h2>
-        <docuseal-form
-          data-src={DSA_URL}
-          style={{ display: "block", width: "100%", minHeight: 800, border: "none" }}
-        ></docuseal-form>
-      </section>
-
-      <section style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-        <h2 style={{ marginTop: 0 }}>W-9 Form</h2>
-        <docuseal-form
-          data-src={W9_URL}
-          style={{ display: "block", width: "100%", minHeight: 800, border: "none" }}
-        ></docuseal-form>
-      </section>
-
-      <style>{`
-        @media (min-width: 960px) {
-          div[style*="grid-template-columns: 1fr"] {
-            grid-template-columns: 1fr 1fr;
-          }
-        }
-      `}</style>
-    </div>
-  );
-});
-
-export default function ContractPage() {
-  const [status, setStatus] = useState<Status>(null);
-  const [docs, setDocs] = useState<DocItem>([]);
-  const [loading, setLoading] = useState(true);
-
-  const badge = useMemo(() => {
-    const done = status?.total ?? 0;
-    const color = done >= 2 ? "#0ea75a" : "#f5c518"; // green vs yellow
-    const text = `${done}/2 Completed`;
-    return { color, text };
-  }, [status]);
-
-  async function refreshStatus() {
-    try {
-      const r = await fetch("/api/documents/status", { cache: "no-store" });
-      if (r.ok) {
-        const j = await r.json();
-        setStatus(j);
-      } else {
-        setStatus({ contractSigned: false, w9Signed: false, total: 0 });
+  for (const [, v] of Object.entries(row)) {
+    if (typeof v === "string") {
+      if (v.trim().toLowerCase() === target) return true;
+    }
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === "string" && item.trim().toLowerCase() === target) return true;
+        if (isObject(item) && rowHasEmail(item, email, depth + 1)) return true;
       }
-    } catch {
-      setStatus({ contractSigned: false, w9Signed: false, total: 0 });
+    }
+    if (isObject(v) && rowHasEmail(v, email, depth + 1)) return true;
+  }
+  return false;
+}
+
+function toEpoch(val: any): number | null {
+  if (!val) return null;
+  if (typeof val === "string") {
+    const t = Date.parse(val);
+    if (!Number.isNaN(t)) return t;
+  }
+  if (typeof val === "number") {
+    if (val > 1e12) return val;       // ms
+    if (val > 1e9) return val * 1000; // s
+  }
+  return null;
+}
+
+function pickDateEpoch(r: AnyRow): number | null {
+  const preferred = ["created_at","updated_at","submitted_at","uploaded_at","signed_at","timestamp","created","updated"];
+  for (const k of preferred) {
+    const e = toEpoch(r[k]);
+    if (e) return e;
+  }
+  for (const [k, v] of Object.entries(r)) {
+    if (k.toLowerCase().endsWith("_at")) {
+      const e = toEpoch(v);
+      if (e) return e;
     }
   }
-
-  async function refreshDocs() {
-    try {
-      const r = await fetch("/api/documents/list", { cache: "no-store" });
-      if (r.ok) setDocs(await r.json());
-      else setDocs([]);
-    } catch {
-      setDocs([]);
+  for (const v of Object.values(r)) {
+    if (isObject(v)) {
+      const e = pickDateEpoch(v);
+      if (e) return e;
     }
   }
+  return null;
+}
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      await Promise.all([refreshStatus(), refreshDocs()]);
-      setLoading(false);
-    })();
+function pickUrl(r: AnyRow) {
+  const candidates = ["public_url","file_url","url","pdf_url","signed_pdf_url","s3_url","download_url","document_url","link"];
+  for (const c of candidates) {
+    if (typeof r[c] === "string" && r[c]) return r[c] as string;
+  }
+  return null;
+}
 
-    // Poll every 10s so badge updates after webhook saves
-    const id = setInterval(() => {
-      refreshStatus();
-      refreshDocs();
-    }, 10000);
-    return () => clearInterval(id);
-  }, []);
+function pickTitle(r: AnyRow) {
+  const candidates = ["title","document_title","name","file_name","doc_type","type","code"];
+  for (const c of candidates) {
+    if (typeof r[c] === "string" && r[c]) return r[c] as string;
+  }
+  return "Document";
+}
+
+export default async function ContractPage({
+  searchParams,
+}: {
+  searchParams: { email?: string }
+}) {
+  const supabase = supabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const sessionEmail = user?.email?.toLowerCase() || null;
+  const qpEmail = (searchParams.email || "").trim().toLowerCase();
+  const targetEmail = qpEmail || sessionEmail || "";
+
+  // Load with service role, then filter by the chosen email
+  let docs: AnyRow[] = [];
+  let w9s: AnyRow[] = [];
+  let docErrMsg: string | null = null;
+  let w9ErrMsg: string | null = null;
+
+  try {
+    const { data, error } = await supabaseAdmin.from("documents").select("*").limit(1000);
+    if (error) docErrMsg = error.message;
+    docs = data ?? [];
+  } catch (e: any) {
+    docErrMsg = e?.message || "Failed to load documents";
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin.from("w9_submissions").select("*").limit(1000);
+    if (error) w9ErrMsg = error.message;
+    w9s = data ?? [];
+  } catch (e: any) {
+    w9ErrMsg = e?.message || "Failed to load W-9 submissions";
+  }
+
+  const myDocs = targetEmail ? docs.filter((r) => rowHasEmail(r, targetEmail)) : [];
+  const myW9s  = targetEmail ? w9s.filter((r) => rowHasEmail(r, targetEmail))  : [];
+
+  const items = [
+    ...myDocs.map((r) => ({ kind: "Document" as const, title: pickTitle(r), url: pickUrl(r), epoch: pickDateEpoch(r) })),
+    ...myW9s.map((r) => ({ kind: "W-9" as const,      title: pickTitle(r), url: pickUrl(r), epoch: pickDateEpoch(r) })),
+  ].sort((a, b) => (b.epoch ?? 0) - (a.epoch ?? 0));
 
   return (
-    <main style={{ maxWidth: 1200, margin: "32px auto", padding: "0 16px" }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Documents</h1>
-        <span
-          title="Updates when your signed PDFs are saved by the webhook"
-          style={{
-            display: "inline-block",
-            padding: "6px 10px",
-            borderRadius: 999,
-            fontWeight: 600,
-            background: badge.color,
-            color: "#111",
-            border: "1px solid rgba(0,0,0,0.08)",
-          }}
-        >
-          {badge.text}
-        </span>
-      </header>
-
-      <p style={{ marginTop: 0, color: "#666" }}>
-        Please complete both forms below. You’ll type your email inside each form.
+    <main style={{ maxWidth: 980, margin: "48px auto", padding: "0 16px" }}>
+      <h1 style={{ marginTop: 0 }}>Your Agreements</h1>
+      <p style={{ marginTop: 4, opacity: 0.9 }}>
+        Enter the email you used during onboarding to view your Direct Seller Agreement and W-9.
       </p>
 
-      {/* Side-by-side forms */}
-      <Forms />
+      {/* Email form (GET) */}
+      <form method="GET" style={{ display: "grid", gap: 12, marginTop: 16, marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input
+            name="email"
+            type="email"
+            defaultValue={targetEmail}
+            placeholder="your email"
+            required
+            style={{ flex: 1, height: 44, padding: "0 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.03)" }}
+          />
+          <button
+            type="submit"
+            style={{ padding: "10px 14px", borderRadius: 10, fontWeight: 700, background: "#60a5fa", color: "#0b1220" }}
+          >
+            View agreements
+          </button>
+        </div>
 
-      {/* My Documents (download) */}
-      <section style={{ marginTop: 32 }}>
-        <h3>My Completed Documents</h3>
-        {loading ? (
-          <p>Loading…</p>
-        ) : docs.length === 0 ? (
-          <p>No completed documents yet.</p>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-            {docs.map((d, i) => (
-              <li key={i} style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: "1px solid #eee" }}>
-                <span>{d.name}</span>
-                <span style={{ display: "inline-flex", gap: 12, alignItems: "center" }}>
-                  <small style={{ color: "#777" }}>{new Date(d.created_at).toLocaleString()}</small>
-                  <a href={d.url} target="_blank" rel="noreferrer" style={{ padding: "6px 10px", border: "1px solid #ddd", borderRadius: 8 }}>
-                    Download
-                  </a>
-                </span>
-              </li>
+        {sessionEmail && sessionEmail !== targetEmail && (
+          <div>
+            <a
+              href={`/portal/contract?email=${encodeURIComponent(sessionEmail)}`}
+              style={{ fontSize: 13, color: "#93c5fd", fontWeight: 700 }}
+            >
+              Use my account email ({sessionEmail})
+            </a>
+          </div>
+        )}
+      </form>
+
+      {docErrMsg && <p style={{ color: "#ef4444" }}>Documents error: {docErrMsg}</p>}
+      {w9ErrMsg && <p style={{ color: "#ef4444" }}>W-9 error: {w9ErrMsg}</p>}
+
+      <section
+        style={{
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 14,
+          padding: 16,
+          background: "rgba(255,255,255,0.03)",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 12 }}>Results</h2>
+
+        {!targetEmail && <div style={{ color: "#6b7280" }}>Enter your email above to search.</div>}
+
+        {targetEmail && items.length === 0 && (
+          <div style={{ color: "#6b7280" }}>No agreements found for <strong>{targetEmail}</strong>.</div>
+        )}
+
+        {items.length > 0 && (
+          <div style={{ display: "grid", gap: 10 }}>
+            {items.map((it, idx) => (
+              <div key={idx} style={{ padding: 12, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10 }}>
+                <div style={{ fontWeight: 700 }}>{it.kind}: {it.title}</div>
+                {it.epoch && (
+                  <div style={{ fontSize: 13, opacity: 0.7 }}>
+                    {new Date(it.epoch).toLocaleString()}
+                  </div>
+                )}
+                {it.url ? (
+                  <div style={{ marginTop: 6 }}>
+                    <a href={it.url} target="_blank" rel="noreferrer">Open</a>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 6, opacity: 0.7 }}>No link available</div>
+                )}
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </section>
     </main>
