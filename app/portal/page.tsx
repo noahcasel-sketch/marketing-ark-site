@@ -6,27 +6,53 @@ export const revalidate = 0;
 
 type AnyRow = Record<string, any>;
 
-function looksLikeEmailKey(k: string) {
-  // common variants we’ve seen
-  const needles = ["email", "rep_email", "user_email", "contact_email", "owner_email", "submitted_email"];
-  const low = k.toLowerCase();
-  return needles.some((n) => low.includes(n));
+function isObject(v: any) {
+  return v && typeof v === "object" && !Array.isArray(v);
 }
 
-function rowEmailMatches(row: AnyRow, email: string) {
+function looksLikeEmailKey(k: string) {
+  const low = k.toLowerCase();
+  // very permissive: anything containing "email"
+  return low.includes("email");
+}
+
+function rowHasEmail(row: AnyRow, email: string, depth = 0): boolean {
+  if (!row || depth > 4) return false;
   const target = email.trim().toLowerCase();
+
   for (const [k, v] of Object.entries(row)) {
-    if (!looksLikeEmailKey(k)) continue;
-    if (typeof v === "string" && v.trim().toLowerCase() === target) return true;
+    // direct string fields (match if key suggests email OR exact string equals email)
+    if (typeof v === "string") {
+      if (looksLikeEmailKey(k) && v.trim().toLowerCase() === target) return true;
+      if (v.trim().toLowerCase() === target) return true;
+    }
+    // arrays: scan them
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === "string" && item.trim().toLowerCase() === target) return true;
+        if (isObject(item) && rowHasEmail(item, target, depth + 1)) return true;
+      }
+    }
+    // nested objects / JSON
+    if (isObject(v) && rowHasEmail(v, target, depth + 1)) return true;
   }
   return false;
 }
 
 function pickUrl(r: AnyRow) {
-  // try common link fields
-  const candidates = ["public_url", "file_url", "url", "pdf_url", "signed_pdf_url", "s3_url", "download_url", "document_url"];
+  const candidates = [
+    "public_url",
+    "file_url",
+    "url",
+    "pdf_url",
+    "signed_pdf_url",
+    "s3_url",
+    "download_url",
+    "document_url",
+    "link",
+  ];
   for (const c of candidates) {
-    if (r[c] && typeof r[c] === "string") return r[c] as string;
+    if (typeof r[c] === "string" && r[c]) return r[c] as string;
   }
   return null;
 }
@@ -34,19 +60,58 @@ function pickUrl(r: AnyRow) {
 function pickTitle(r: AnyRow) {
   const candidates = ["title", "document_title", "name", "file_name", "doc_type", "type", "code"];
   for (const c of candidates) {
-    if (r[c] && typeof r[c] === "string") return r[c] as string;
+    if (typeof r[c] === "string" && r[c]) return r[c] as string;
   }
   return "Document";
 }
 
-function pickDate(r: AnyRow) {
-  // prefer created_at, then updated_at, else any *_at
-  const primary = ["created_at", "updated_at", "submitted_at", "uploaded_at", "signed_at"];
-  for (const p of primary) {
-    if (r[p] && typeof r[p] === "string") return r[p] as string;
+function toEpoch(val: any): number | null {
+  if (!val) return null;
+
+  // ISO/date string?
+  if (typeof val === "string") {
+    const t = Date.parse(val);
+    if (!Number.isNaN(t)) return t;
   }
-  const anyAt = Object.keys(r).find((k) => k.endsWith("_at") && typeof r[k] === "string");
-  return anyAt ? (r[anyAt] as string) : null;
+  // numeric epoch: seconds or millis
+  if (typeof val === "number") {
+    if (val > 1e12) return val;        // ms
+    if (val > 1e9) return val * 1000;  // s
+  }
+  return null;
+}
+
+function pickDateEpoch(r: AnyRow): number | null {
+  // Try common names first
+  const primary = [
+    "created_at",
+    "updated_at",
+    "submitted_at",
+    "uploaded_at",
+    "signed_at",
+    "timestamp",
+    "created",
+    "updated",
+  ];
+  for (const p of primary) {
+    const e = toEpoch(r[p]);
+    if (e) return e;
+  }
+  // Fallback: any *_at field
+  for (const [k, v] of Object.entries(r)) {
+    if (k.toLowerCase().endsWith("_at")) {
+      const e = toEpoch(v);
+      if (e) return e;
+    }
+  }
+  // Last resort: recurse shallowly for nested timestamps
+  for (const v of Object.values(r)) {
+    if (isObject(v)) {
+      const e = pickDateEpoch(v);
+      if (e) return e;
+    }
+  }
+  return null;
 }
 
 export default async function PortalPage() {
@@ -66,24 +131,29 @@ export default async function PortalPage() {
     );
   }
 
-  // Fetch without column filters so we don’t error on unknown column names.
-  // RLS (if present) will still limit rows appropriately.
-  const [{ data: docs, error: docErr }, { data: w9s, error: w9Err }] = await Promise.all([
-    supabase.from("documents").select("*").order("created_at", { ascending: false }).limit(200),
-    supabase.from("w9_submissions").select("*").order("created_at", { ascending: false }).limit(200),
+  // Fetch without ORDER BY (some tables don't have created_at)
+  const [docsRes, w9Res] = await Promise.all([
+    supabase.from("documents").select("*").limit(500),
+    supabase.from("w9_submissions").select("*").limit(500),
   ]);
 
-  // Filter in app: keep rows that clearly belong to the signed-in rep.
-  const myDocs = (docs ?? []).filter((r) => rowEmailMatches(r, user.email!));
-  const myW9s = (w9s ?? []).filter((r) => rowEmailMatches(r, user.email!));
+  const docErr = docsRes.error;
+  const w9Err = w9Res.error;
+  const docs = docsRes.data ?? [];
+  const w9s = w9Res.data ?? [];
 
+  // Keep only rows that clearly belong to this user (any email-like field equals auth email)
+  const myDocs = docs.filter((r) => rowHasEmail(r, user.email!));
+  const myW9s = w9s.filter((r) => rowHasEmail(r, user.email!));
+
+  // Merge + sort newest first by any date-like field we can find
   const items = [
     ...myDocs.map((r) => ({ kind: "Document", r })),
     ...myW9s.map((r) => ({ kind: "W-9", r })),
   ].sort((a, b) => {
-    const da = pickDate(a.r);
-    const db = pickDate(b.r);
-    return (db ? Date.parse(db) : 0) - (da ? Date.parse(da) : 0);
+    const ea = pickDateEpoch(a.r) ?? 0;
+    const eb = pickDateEpoch(b.r) ?? 0;
+    return eb - ea;
   });
 
   return (
@@ -135,7 +205,9 @@ export default async function PortalPage() {
           {items.map(({ kind, r }, idx) => {
             const href = pickUrl(r);
             const title = pickTitle(r);
-            const dt = pickDate(r);
+            const epoch = pickDateEpoch(r);
+            const when = epoch ? new Date(epoch).toLocaleString() : "";
+
             return (
               <div
                 key={`${kind}-${r.id ?? idx}`}
@@ -144,9 +216,7 @@ export default async function PortalPage() {
                 <div style={{ fontWeight: 700 }}>
                   {kind}: {title}
                 </div>
-                <div style={{ fontSize: 13, color: "#94a3b8" }}>
-                  {dt ? new Date(dt).toLocaleString() : ""}
-                </div>
+                <div style={{ fontSize: 13, color: "#94a3b8" }}>{when}</div>
                 {href ? (
                   <div style={{ marginTop: 6 }}>
                     <a href={href} target="_blank" rel="noreferrer">
@@ -154,9 +224,7 @@ export default async function PortalPage() {
                     </a>
                   </div>
                 ) : (
-                  <div style={{ marginTop: 6, color: "#94a3b8" }}>
-                    No link available
-                  </div>
+                  <div style={{ marginTop: 6, color: "#94a3b8" }}>No link available</div>
                 )}
               </div>
             );
