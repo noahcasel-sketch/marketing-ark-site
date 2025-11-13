@@ -45,11 +45,6 @@ type FallbackCtx = {
   regionCode: string | null;
 };
 
-/**
- * Heuristic fallback generator for a NOT NULL column.
- * We don't know the type, so we guess from the column name.
- * If type is wrong, we'll parse the next error and correct.
- */
 function guessFallback(col: string, ctx: FallbackCtx): any {
   const p = ctx.pending;
   const email =
@@ -66,26 +61,40 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
   const lower = col.toLowerCase();
 
   // email-ish
-  if (lower.includes("email")) return email || "unknown@marketing-ark.com";
+  if (lower.includes("email")) {
+    return email ? email : "unknown@marketing-ark.com";
+  }
 
   // names
-  if (lower.includes("first_name"))
-    return byName(["legal_first_name", "first_name", "fname", "given_name"]) ??
-      splitFullName(byName(["full_name", "name"]) as string | undefined).first ||
-      "Unknown";
+  if (lower.includes("first_name")) {
+    const v = byName(["legal_first_name", "first_name", "fname", "given_name"]);
+    if (v !== undefined) return v;
+    const split = splitFullName(byName(["full_name", "name"]) as string | undefined);
+    return split.first ? split.first : "Unknown";
+  }
 
-  if (lower.includes("last_name"))
-    return byName(["legal_last_name", "last_name", "lname", "surname"]) ??
-      splitFullName(byName(["full_name", "name"]) as string | undefined).last ||
-      "Unknown";
+  if (lower.includes("last_name")) {
+    const v = byName(["legal_last_name", "last_name", "lname", "surname"]);
+    if (v !== undefined) return v;
+    const split = splitFullName(byName(["full_name", "name"]) as string | undefined);
+    return split.last ? split.last : "Unknown";
+  }
 
   if (lower === "name") {
-    return byName(["name", "full_name"]) ?? email || "Unknown";
+    const n = byName(["name", "full_name"]);
+    const base = n !== undefined ? n : email;
+    return base ? base : "Unknown";
   }
-  if (lower === "manager_name") return byName(["manager_name"]) ?? titleFromEmail(ctx.approverEmail);
+
+  if (lower === "manager_name") {
+    const m = byName(["manager_name"]);
+    return m !== undefined ? m : titleFromEmail(ctx.approverEmail);
+  }
 
   // region
-  if (lower === "region_code" || lower === "region") return ctx.regionCode ?? "ARK";
+  if (lower === "region_code" || lower === "region") {
+    return ctx.regionCode ? ctx.regionCode : "ARK";
+  }
 
   // status-like
   if (lower === "status") return "active";
@@ -101,11 +110,26 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
   if (lower.includes("count") || lower.includes("qty") || lower.includes("number")) return 0;
 
   // phones/addresses
-  if (lower.includes("phone")) return byName(["phone", "mobile", "phone_number"]) ?? "0000000000";
-  if (lower.includes("zip") || lower.includes("postal")) return byName(["zip", "postal_code"]) ?? "00000";
-  if (lower.includes("city")) return byName(["city"]) ?? "N/A";
-  if (lower.includes("state")) return byName(["state", "province"]) ?? "N/A";
-  if (lower.includes("address")) return byName(["address", "street", "street1"]) ?? "N/A";
+  if (lower.includes("phone")) {
+    const v = byName(["phone", "mobile", "phone_number"]);
+    return v !== undefined ? v : "0000000000";
+  }
+  if (lower.includes("zip") || lower.includes("postal")) {
+    const v = byName(["zip", "postal_code"]);
+    return v !== undefined ? v : "00000";
+  }
+  if (lower.includes("city")) {
+    const v = byName(["city"]);
+    return v !== undefined ? v : "N/A";
+  }
+  if (lower.includes("state")) {
+    const v = byName(["state", "province"]);
+    return v !== undefined ? v : "N/A";
+  }
+  if (lower.includes("address")) {
+    const v = byName(["address", "street", "street1"]);
+    return v !== undefined ? v : "N/A";
+  }
 
   // audit-ish
   if (lower === "approved_by") return ctx.approverEmail;
@@ -115,11 +139,11 @@ function guessFallback(col: string, ctx: FallbackCtx): any {
   return "N/A";
 }
 
-/** Adjust a bad fallback when Postgres tells us the type */
 function coerceByTypeHint(current: any, msg: string): any {
   const m = msg.toLowerCase();
   if (m.includes("type boolean")) return false;
-  if (m.includes("type integer") || m.includes("type bigint") || m.includes("type numeric") || m.includes("type double")) return 0;
+  if (m.includes("type integer") || m.includes("type bigint") || m.includes("type numeric") || m.includes("type double"))
+    return 0;
   if (m.includes("timestamp") || m.includes("timestamptz")) return new Date().toISOString();
   if (m.includes("type date")) return new Date().toISOString().slice(0, 10);
   return current ?? "N/A";
@@ -140,29 +164,22 @@ async function robustInsert(table: string, base: Record<string, any>, ctx: Fallb
     let m = /null value in column "([^"]+)" violates not-null constraint/i.exec(msg);
     if (m) {
       const col = m[1];
-      // Only add if the column actually exists
       if (await columnExists(table, col)) {
-        const val = guessFallback(col, ctx);
-        payload[col] = val;
-        continue; // retry
-      } else {
-        // column mentioned but doesn't exist (rare) -> ignore and retry without it
-        continue;
+        payload[col] = guessFallback(col, ctx);
       }
+      continue; // retry
     }
 
     // Column doesn't exist (if somehow we included one)
     m = /could not find the '([^']+)' column/i.exec(msg);
     if (m) {
-      const bad = m[1];
-      delete (payload as any)[bad];
+      delete (payload as any)[m[1]];
       continue;
     }
 
     // Type mismatch (e.g., "invalid input syntax for type integer: \"N/A\"")
     m = /invalid input syntax for type ([^:]+):/i.exec(msg);
     if (m) {
-      // We don't know which column; try to infer from a recent add? Best effort: coerce last-added keys
       const keys = Object.keys(payload);
       const k = keys[keys.length - 1];
       payload[k] = coerceByTypeHint(payload[k], msg);
@@ -175,7 +192,6 @@ async function robustInsert(table: string, base: Record<string, any>, ctx: Fallb
       continue;
     }
 
-    // Unknown error -> give up with detail
     return { ok: false as const, error: msg };
   }
   return { ok: false as const, error: "Insert failed after multiple retries." };
@@ -222,7 +238,7 @@ export async function POST(req: Request) {
     // resolve region code (your DB enforces NOT NULL on region_code)
     let regionCode: string | null =
       (body.region ?? body.region_code ?? body.regionCode)?.toString() ??
-      pending.region_code ?? pending.region ?? pending.team ?? null;
+      (pending.region_code ?? pending.region ?? pending.team ?? null);
 
     if (!regionCode && role === "regional" && approverRegions.length === 1) {
       regionCode = approverRegions[0];
@@ -247,7 +263,9 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const pendingEmail = (pending[emailCol] ?? pending.email ?? pending.rep_email ?? pending.user_email ?? pending.contact_email ?? "").toString().toLowerCase();
+    const pendingEmailRaw =
+      pending[emailCol] ?? pending.email ?? pending.rep_email ?? pending.user_email ?? pending.contact_email ?? "";
+    const pendingEmail = String(pendingEmailRaw || "").toLowerCase();
     if (!pendingEmail) {
       return NextResponse.json(
         { error: "Pending rep has no email value. Add an email field to pending_reps." },
