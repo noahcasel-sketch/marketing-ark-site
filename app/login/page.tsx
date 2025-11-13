@@ -9,6 +9,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
 
+const LOCAL_WHITELIST = new Set([
+  'noahcasel@marketing-ark.com',
+  'hudsoncrist@marketing-ark.com',
+  'alexanderkormeluk@marketing-ark.com',
+])
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [sending, setSending] = useState(false)
@@ -22,46 +28,57 @@ export default function LoginPage() {
     setInfo(null)
     setSent(false)
 
-    const res = await fetch('/api/auth/check-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
-    })
-    const j = await res.json()
+    const norm = email.trim().toLowerCase()
 
-    if (j.status === 'approved') {
+    // Call server precheck
+    let status: string | undefined
+    try {
+      const res = await fetch('/api/auth/check-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: norm })
+      })
+      const j = await res.json()
+      status = j.status
+    } catch (err) {
+      // ignore network hiccup; rely on local whitelist if applicable
+      status = undefined
+    }
+
+    const allow =
+      status === 'approved' ||
+      (status === undefined && LOCAL_WHITELIST.has(norm)) || // fallback if API not reachable
+      LOCAL_WHITELIST.has(norm) // belt & suspenders
+
+    if (allow) {
       setSending(true)
       const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
       const { error: otpErr } = await supabase.auth.signInWithOtp({
-        email,
+        email: norm,
         options: { emailRedirectTo: `${siteUrl}/auth/callback` }
       })
       setSending(false)
       if (otpErr) setError(otpErr.message)
       else setSent(true)
-    } else if (j.status === 'inactive') {
+      return
+    }
+
+    if (status === 'inactive') {
       setInfo('This account is no longer active. If this is incorrect, please contact your manager.')
-    } else if (j.status === 'pending') {
+    } else if (status === 'pending') {
       setInfo('This email is pending approval.')
-    } else if (j.status === 'not_found') {
-      setInfo('This email is not recognized in our database.')
     } else {
-      setError(j.error || 'Unexpected error.')
+      setInfo('This email is not recognized in our database.')
     }
   }
 
   return (
     <main style={{ maxWidth: 520, margin: '64px auto' }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Rep login</h1>
-
       {sent ? (
         <p>Check your email for the sign-in link.</p>
       ) : (
-        <form
-          onSubmit={onSubmit}
-          className="card"
-          style={{ padding: 20, display: 'grid', gap: 16 }}
-        >
+        <form onSubmit={onSubmit} className="card" style={{ padding: 20, display: 'grid', gap: 16 }}>
           <input
             type="email"
             className="input"
@@ -71,16 +88,9 @@ export default function LoginPage() {
             required
             style={{ height: 46, paddingInline: 12, borderRadius: 10 }}
           />
-
           {info && <p style={{ color: '#94a3b8', fontSize: 14 }}>{info}</p>}
           {error && <p style={{ color: '#ef4444', fontSize: 14 }}>{error}</p>}
-
-          <button
-            type="submit"
-            disabled={sending}
-            className="btn"
-            style={{ width: 'fit-content', padding: '10px 16px', borderRadius: 10, fontWeight: 600 }}
-          >
+          <button type="submit" disabled={sending} className="btn" style={{ width: 'fit-content', padding: '10px 16px', borderRadius: 10, fontWeight: 600 }}>
             {sending ? 'Sending…' : 'Send magic link'}
           </button>
         </form>
