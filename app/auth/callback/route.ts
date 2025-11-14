@@ -13,6 +13,6 @@ export async function GET(request: Request) {
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // Always go to portal after magic link
+  // FORCE portal redirect – no matter what
   return NextResponse.redirect(new URL('/portal', requestUrl.origin));
 }
