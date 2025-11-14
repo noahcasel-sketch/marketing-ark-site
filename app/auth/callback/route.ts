@@ -9,20 +9,22 @@ export async function GET(request: Request) {
   const token_hash = url.searchParams.get('token_hash');
   const type = url.searchParams.get('type');
 
-  let redirectTo = '/portal';
-
   if (token_hash && type === 'magiclink') {
     const supabase = createRouteHandlerClient({ cookies });
-    const { error } = await supabase.auth.verifyOtp({
+    
+    const { data, error } = await supabase.auth.verifyOtp({
       token_hash,
-      type: 'email'
+      type: 'magiclink'
     });
 
     if (error) {
-      console.error('Magic link verify error:', error);
-      redirectTo = '/login?error=magic_link_failed';
+      console.error('Magic link error:', error);
+      return NextResponse.redirect(new URL('/login?error=magic_link_failed', url.origin));
     }
+
+    // Force session refresh
+    await supabase.auth.getSession();
   }
 
-  return NextResponse.redirect(new URL(redirectTo, url.origin));
+  return NextResponse.redirect(new URL('/portal', url.origin));
 }
