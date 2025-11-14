@@ -1,109 +1,60 @@
 // app/portal/page.tsx
-export const dynamic = "force-dynamic";
+import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
+import Link from 'next/link';
 
-import Link from "next/link";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+export const dynamic = 'force-dynamic';
 
 export default async function PortalPage() {
-  // Supabase (server) using cookies
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookies().get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    }
-  );
+  const supabase = createServerComponentClient({ cookies });
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  const { data: userData } = await supabase.auth.getUser();
-  const user = userData?.user ?? null;
+  if (!session) {
+    redirect('/login');
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', session.user.id)
+    .single();
 
   return (
-    <main style={{ maxWidth: 1100, margin: "48px auto", padding: "0 16px" }}>
-      <h1 style={{ marginTop: 0 }}>Rep Portal</h1>
-      <p style={{ marginTop: 4, opacity: 0.9 }}>
-        {user ? <>Welcome, <strong>{user.email}</strong>.</> : <>Please sign in to access your portal.</>}
-      </p>
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-lg p-8">
+        <div className="flex justify-between items-start mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">
+              Welcome back, {profile?.full_name || 'Rep'}!
+            </h1>
+            <p className="text-gray-600 mt-1">Role: <strong>{profile?.role || 'rep'}</strong></p>
+          </div>
+          <form action="/auth/signout" method="post">
+            <button className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition">
+              Sign Out
+            </button>
+          </form>
+        </div>
 
-      {/* Grid cards */}
-      <div
-        style={{
-          display: "grid",
-          gap: 20,
-          gridTemplateColumns: "1fr",
-          marginTop: 20,
-        }}
-      >
-        {/* Today */}
-        <section style={cardStyle}>
-          <h2 style={cardTitle}>Today</h2>
-          <ul>
-            <li>Territory: TBD</li>
-            <li>Installs scheduled: 0</li>
-            <li>My orders this week: 0</li>
-          </ul>
-        </section>
-
-        {/* Resources */}
-        <section style={cardStyle}>
-          <h2 style={cardTitle}>Resources</h2>
-          <ul>
-            <li>Sales script</li>
-            <li>Product FAQs</li>
-            <li>Compliance</li>
-          </ul>
-        </section>
-
-        {/* Documents */}
-        <section style={cardStyle}>
-          <h2 style={cardTitle}>Documents</h2>
-          <p>Complete your Direct Seller Agreement and W-9.</p>
-          <Link
-            href="/portal/contract"
-            style={{
-              display: "inline-block",
-              background: "#ffd24a", // yellow
-              color: "#111",
-              padding: "10px 14px",
-              borderRadius: 12,
-              fontWeight: 700,
-              border: "1px solid rgba(0,0,0,0.1)",
-            }}
-          >
-            Complete Your Documents
+        <div className="grid md:grid-cols-2 gap-6 mt-8">
+          <Link href="/portal/leads" className="block p-6 bg-blue-50 rounded-lg hover:bg-blue-100 transition">
+            <h3 className="text-xl font-semibold text-blue-900">View Leads</h3>
+            <p className="text-blue-700 mt-1">Manage and track your prospects</p>
           </Link>
-        </section>
+
+          <Link href="/portal/reports" className="block p-6 bg-green-50 rounded-lg hover:bg-green-100 transition">
+            <h3 className="text-xl font-semibold text-green-900">Run Reports</h3>
+            <p className="text-green-700 mt-1">Export performance data</p>
+          </Link>
+        </div>
+
+        <div className="mt-8 text-sm text-gray-500">
+          Logged in as: <span className="font-mono">{session.user.email}</span>
+        </div>
       </div>
-
-      <style>{`
-        @media (min-width: 960px) {
-          div[style*="grid-template-columns: 1fr"] {
-            grid-template-columns: 1fr 1fr 1fr;
-          }
-        }
-      `}</style>
-
-      <footer style={{ marginTop: 40, opacity: 0.7, fontSize: 14 }}>
-        © 2025 Marketing-ARK LLC • Door-to-Door Fiber-Optic Sales • Phoenix, AZ
-      </footer>
-    </main>
+    </div>
   );
 }
-
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.03)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: 16,
-  padding: 20,
-};
-
-const cardTitle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 12,
-};
