@@ -13,6 +13,6 @@ export async function GET(request: Request) {
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // FORCE redirect to the REP PORTAL
+  // FORCE redirect to REP PORTAL
   return NextResponse.redirect(new URL('/portal', requestUrl.origin));
 }
