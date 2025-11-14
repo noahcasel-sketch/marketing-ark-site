@@ -1,7 +1,7 @@
 // app/region/page.tsx
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import ResendResetButton from "../../components/ResendResetButton";
+import ResendResetButton from "../components/ResendResetButton";
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +42,10 @@ export default async function RegionPage() {
   if (me === "noahcasel@marketing-ark.com") {
     query = query.eq("region", "ARK");
   }
-  // For all other region managers, keep your existing logic on row-level security / policies
+  // For other region managers, your existing RLS/policies should scope results as needed.
 
   const { data: reps, error } = await query;
+
   if (error) {
     return (
       <main className="p-6">
@@ -54,7 +55,6 @@ export default async function RegionPage() {
     );
   }
 
-  // Determine visible region label (for header)
   const regionLabel =
     me === "noahcasel@marketing-ark.com" ? "ARK (owner view)" : "Your region";
 
