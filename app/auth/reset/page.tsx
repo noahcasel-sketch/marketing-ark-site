@@ -2,11 +2,22 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-export default function ResetPassword() {
+export default async function ResetPassword() {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();
 
   if (!session) redirect('/login');
+
+  // Handle form submission
+  if (typeof window === 'undefined') {
+    const formData = await new Response(request.body).formData();
+    const password = formData.get('password') as string;
+
+    if (password) {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (!error) redirect('/portal');
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -20,8 +31,9 @@ export default function ResetPassword() {
           <input
             type="password"
             name="password"
-            placeholder="New password"
+            placeholder="Enter new password"
             required
+            minLength={6}
             className="w-full px-4 py-2 border rounded-lg"
           />
           <button
