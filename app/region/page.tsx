@@ -1,114 +1,106 @@
 // app/region/page.tsx
-import { supabaseServer } from "../../lib/supabaseServer";
-import { supabaseAdmin } from "../../lib/supabaseAdmin";
-import RepAdminList, { AdminItem } from "../components/RepAdminList";
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
+import ResendResetButton from "../../components/ResendResetButton";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-type RegionCode = "ARK" | "AKM" | "HC";
-const ALL_REGIONS: RegionCode[] = ["ARK", "AKM", "HC"];
+type Rep = {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  work_email?: string | null;
+  region?: string | null;
+  active?: boolean | null;
+};
 
-export default async function RegionApprovalsPage() {
-  const supabase = supabaseServer();
-  const { data: { user } } = await supabase.auth.getUser();
+function displayName(r: Rep) {
+  const n = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
+  return n || (r.email ?? r.work_email ?? "");
+}
+function loginEmail(r: Rep) {
+  return (r.email || r.work_email || "").toLowerCase();
+}
 
-  if (!user?.email) {
+export default async function RegionPage() {
+  const supabase = createServerComponentClient({ cookies });
+
+  // Who is signed in?
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const me = user?.email?.toLowerCase();
+
+  // Base query
+  let query = supabase
+    .from("reps")
+    .select("id, first_name, last_name, email, work_email, region, active")
+    .order("created_at", { ascending: false });
+
+  // Owner Noah: only see ARK region
+  if (me === "noahcasel@marketing-ark.com") {
+    query = query.eq("region", "ARK");
+  }
+  // For all other region managers, keep your existing logic on row-level security / policies
+
+  const { data: reps, error } = await query;
+  if (error) {
     return (
-      <main style={{ maxWidth: 980, margin: "48px auto" }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Region — Team Management</h1>
-        <p>Please <a href="/login">log in</a> to view this page.</p>
+      <main className="p-6">
+        <h1 className="text-xl font-semibold">Region</h1>
+        <p className="mt-4 text-red-600">Error: {error.message}</p>
       </main>
     );
   }
 
-  const caller = user.email.toLowerCase();
-  const { data: staff } = await supabaseAdmin
-    .from("staff")
-    .select("role, regions")
-    .eq("email", caller)
-    .maybeSingle();
-
-  if (!staff) {
-    return (
-      <main style={{ maxWidth: 980, margin: "48px auto" }}>
-        <p>Not authorized.</p>
-      </main>
-    );
-  }
-
-  const canSee = (code: RegionCode) =>
-    staff.role === "owner" || (Array.isArray(staff.regions) && staff.regions.includes(code));
-  const visible = ALL_REGIONS.filter(canSee);
-
-  const items: AdminItem[] = [];
-
-  for (const region of visible) {
-    // pending
-    const { data: pend } = await supabaseAdmin
-      .from("pending_reps")
-      .select("id, submitted_at, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path")
-      .eq("region_code", region)
-      .order("submitted_at", { ascending: false });
-
-    for (const r of pend || []) {
-      let id_url: string | null = null;
-      if (r.id_photo_path) {
-        const { data } = await supabaseAdmin.storage.from("id-photos").createSignedUrl(r.id_photo_path, 60 * 5);
-        id_url = data?.signedUrl ?? null;
-      }
-      items.push({
-        id: r.id,
-        status: "awaiting",
-        region_code: r.region_code,
-        name: `${r.legal_first_name} ${r.legal_last_name}`,
-        email: r.email,
-        phone: r.phone,
-        address: r.address,
-        submitted_at: r.submitted_at,
-        id_url,
-      });
-    }
-
-    // reps
-    const { data: reps } = await supabaseAdmin
-      .from("reps")
-      .select("id, created_at, status, region_code, legal_first_name, legal_last_name, email, phone, address, id_photo_path")
-      .eq("region_code", region)
-      .order("created_at", { ascending: false });
-
-    for (const r of reps || []) {
-      let id_url: string | null = null;
-      if (r.id_photo_path) {
-        const { data } = await supabaseAdmin.storage.from("id-photos").createSignedUrl(r.id_photo_path, 60 * 5);
-        id_url = data?.signedUrl ?? null;
-      }
-      items.push({
-        id: r.id,
-        status: (r.status as "active" | "inactive") ?? "active",
-        region_code: r.region_code,
-        name: `${r.legal_first_name} ${r.legal_last_name}`,
-        email: r.email,
-        phone: r.phone,
-        address: r.address,
-        created_at: r.created_at,
-        id_url,
-        is_rep: true,
-      });
-    }
-  }
-
-  // newest first
-  items.sort((a, b) => {
-    const da = new Date(a.submitted_at || a.created_at || 0).getTime();
-    const db = new Date(b.submitted_at || b.created_at || 0).getTime();
-    return db - da;
-  });
+  // Determine visible region label (for header)
+  const regionLabel =
+    me === "noahcasel@marketing-ark.com" ? "ARK (owner view)" : "Your region";
 
   return (
-    <main style={{ maxWidth: 980, margin: "48px auto" }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>Region — Team Management</h1>
-      <RepAdminList items={items} />
+    <main className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Region — {regionLabel}</h1>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full border border-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-2 text-left">Name</th>
+              <th className="px-3 py-2 text-left">Email</th>
+              <th className="px-3 py-2 text-left">Region</th>
+              <th className="px-3 py-2 text-left">Status</th>
+              <th className="px-3 py-2 text-left">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(reps as Rep[] | null)?.map((r) => (
+              <tr key={r.id} className="border-t">
+                <td className="px-3 py-2">{displayName(r)}</td>
+                <td className="px-3 py-2">{loginEmail(r)}</td>
+                <td className="px-3 py-2">{(r.region ?? "").toString().toUpperCase()}</td>
+                <td className="px-3 py-2">
+                  {r.active ? (
+                    <span className="rounded bg-green-100 px-2 py-0.5 text-green-700">
+                      Active
+                    </span>
+                  ) : (
+                    <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-700">
+                      Inactive
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-col gap-1">
+                    {/* Your existing "Mark Inactive" button/component goes ABOVE this line */}
+                    <ResendResetButton email={loginEmail(r)} />
+                  </div>
+                </td>
+              </tr>
+            )) ?? null}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }
