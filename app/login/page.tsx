@@ -21,12 +21,14 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setError('');
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { 
-        emailRedirectTo: 'https://www.marketing-ark.com/auth/callback' 
+      options: {
+        emailRedirectTo: 'https://www.marketing-ark.com/auth/callback'
       }
     });
+
     if (error) setError(error.message);
     else alert('Magic link sent! Check your email.');
     setLoading(false);

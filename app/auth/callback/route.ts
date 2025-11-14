@@ -5,14 +5,24 @@ import { NextResponse } from 'next/server';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('token_hash');
+  const url = new URL(request.url);
+  const token_hash = url.searchParams.get('token_hash');
+  const type = url.searchParams.get('type');
 
-  if (code) {
+  let redirectTo = '/portal';
+
+  if (token_hash && type === 'magiclink') {
     const supabase = createRouteHandlerClient({ cookies });
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash,
+      type: 'email'
+    });
+
+    if (error) {
+      console.error('Magic link verify error:', error);
+      redirectTo = '/login?error=magic_link_failed';
+    }
   }
 
-  // ALWAYS go to portal
-  return NextResponse.redirect(new URL('/portal', requestUrl.origin));
+  return NextResponse.redirect(new URL(redirectTo, url.origin));
 }
