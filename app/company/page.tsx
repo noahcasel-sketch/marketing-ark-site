@@ -11,20 +11,25 @@ export default async function CompanyPage() {
 
   const { data: pending } = await supabase
     .from('pending_reps')
-    .select('id, name, company')  // <-- Use 'name'
-    .order('company');
+    .select('id, legal_first_name, legal_last_name, region_code')
+    .order('created_at', { ascending: false });
 
   return (
     <div className="p-6 text-white">
-      <h1 className="text-2xl font-bold mb-6">Pending Reps by Company</h1>
+      <h1 className="text-2xl font-bold mb-6">Pending Reps (Company View)</h1>
       {pending?.length ? (
         <div className="space-y-4">
           {pending.map((rep) => (
             <div key={rep.id} className="bg-gray-800 p-4 rounded-lg flex justify-between items-center">
               <div>
-                <p><strong>{rep.name}</strong> – {rep.company}</p>
+                <p className="font-medium">{rep.legal_first_name} {rep.legal_last_name}</p>
+                <p className="text-sm text-gray-400">Region: {rep.region_code}</p>
               </div>
-              <button className="bg-green-600 px-4 py-2 rounded hover:bg-green-700">Approve</button>
+              <form action={`/portal/api/reps/approve?id=${rep.id}`} method="post">
+                <button className="bg-green-600 px-4 py-2 rounded hover:bg-green-700 transition">
+                  Approve
+                </button>
+              </form>
             </div>
           ))}
         </div>
