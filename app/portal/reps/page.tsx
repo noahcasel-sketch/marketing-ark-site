@@ -4,25 +4,23 @@ import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
-export default async function PortalHome() {
+export default async function RepDashboard() {
   const supabase = createServerComponentClient({ cookies });
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) redirect('/login');
 
-  const { data: staff } = await supabase
-    .from('staff')
-    .select('role')
-    .eq('email', session.user.email)
+  const { data: rep } = await supabase
+    .from('reps')
+    .select('id')
+    .eq('id', session.user.id)
     .single();
 
-  if (!staff || staff.role !== 'owner') {
-    redirect('/portal/reps');
-  }
+  if (!rep) redirect('/login');
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-bold">Owner Dashboard</h1>
-      <p>Welcome back! Use the menu to manage reps.</p>
+      <h1 className="text-2xl font-bold">Rep Dashboard</h1>
+      <p>Welcome! Your leads will appear here.</p>
     </div>
   );
 }

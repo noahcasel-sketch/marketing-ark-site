@@ -21,16 +21,12 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: {
-        emailRedirectTo: 'https://www.marketing-ark.com/auth/callback'
-      }
+      options: { emailRedirectTo: 'https://www.marketing-ark.com/auth/callback' }
     });
-
     if (error) setError(error.message);
-    else alert('Magic link sent! Check your email.');
+    else alert('Magic link sent!');
     setLoading(false);
   };
 
@@ -40,7 +36,7 @@ export default function Login() {
     setError('');
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) setError(error.message);
-    else router.push('/portal');
+    else router.push('/portal/reps');  // Reps go here
     setLoading(false);
   };
 
@@ -50,54 +46,22 @@ export default function Login() {
         <h1 className="text-2xl font-bold mb-6 text-center">Rep Portal Login</h1>
 
         <div className="flex justify-center mb-6">
-          <button
-            onClick={() => setIsRep(false)}
-            className={`px-4 py-2 rounded-l-lg ${!isRep ? 'bg-indigo-600' : 'bg-gray-700'}`}
-          >
+          <button onClick={() => setIsRep(false)} className={`px-4 py-2 rounded-l-lg ${!isRep ? 'bg-indigo-600' : 'bg-gray-700'}`}>
             Staff (Magic Link)
           </button>
-          <button
-            onClick={() => setIsRep(true)}
-            className={`px-4 py-2 rounded-r-lg ${isRep ? 'bg-indigo-600' : 'bg-gray-700'}`}
-          >
+          <button onClick={() => setIsRep(true)} className={`px-4 py-2 rounded-r-lg ${isRep ? 'bg-indigo-600' : 'bg-gray-700'}`}>
             Rep (Password)
           </button>
         </div>
 
         <form onSubmit={isRep ? handlePasswordLogin : handleMagicLink} className="space-y-4">
-          <input
-            type="email"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white"
-          />
-          {isRep && (
-            <input
-              type="password"
-              placeholder="Enter your password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white"
-            />
-          )}
+          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white" />
+          {isRep && <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required className="w-full px-4 py-2 bg-gray-700 rounded-lg text-white" />}
           {error && <p className="text-red-400 text-sm">{error}</p>}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {loading ? 'Sending...' : isRep ? 'Login with Password' : 'Send Magic Link'}
+          <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            {loading ? 'Sending...' : isRep ? 'Login' : 'Send Magic Link'}
           </button>
         </form>
-
-        {isRep && (
-          <p className="text-center mt-4 text-sm">
-            Forgot password? Use the <strong>Resend Reset</strong> button in the portal.
-          </p>
-        )}
       </div>
     </div>
   );

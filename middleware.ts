@@ -4,19 +4,15 @@ import { NextResponse } from 'next/server';
 export async function middleware(req) {
   const res = NextResponse.next();
   const supabase = createMiddlewareClient({ req, res });
-  
-  // Always refresh session from cookies
   const { data: { session } } = await supabase.auth.getSession();
 
   const pathname = req.nextUrl.pathname;
 
-  // Logged in + on /login → portal
   if (session && pathname === '/login') {
     return NextResponse.redirect(new URL('/portal', req.url));
   }
 
-  // Protect portal
-  if (pathname.startsWith('/portal') && !session) {
+  if ((pathname.startsWith('/portal') || pathname.startsWith('/portal/reps')) && !session) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
