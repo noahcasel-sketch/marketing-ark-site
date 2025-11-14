@@ -2,7 +2,7 @@
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Search } from 'lucide-react';
-import { ApproveButton, DeactivateButton } from '../_components';
+import { ApproveButton, DeactivateButton, ResendResetButton } from '../_components';
 
 export const dynamic = 'force-dynamic';
 
@@ -128,11 +128,14 @@ export default async function CompanyPortal({
                         {rep.status}
                       </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">
+                    <td className="px-4 py-3 whitespace-nowrap text-sm flex gap-2">
                       {rep.status === 'inactive' ? (
                         <ApproveButton repId={rep.id} />
                       ) : (
-                        <DeactivateButton repId={rep.id} />
+                        <>
+                          <DeactivateButton repId={rep.id} />
+                          <ResendResetButton email={rep.email} />
+                        </>
                       )}
                     </td>
                   </tr>
