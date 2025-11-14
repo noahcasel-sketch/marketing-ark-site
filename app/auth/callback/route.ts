@@ -6,13 +6,13 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const code = requestUrl.searchParams.get('code');
+  const code = requestUrl.searchParams.get('token_hash');
 
   if (code) {
     const supabase = createRouteHandlerClient({ cookies });
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // FORCE portal redirect – no matter what
+  // ALWAYS go to portal
   return NextResponse.redirect(new URL('/portal', requestUrl.origin));
 }
