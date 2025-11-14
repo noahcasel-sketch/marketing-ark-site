@@ -10,12 +10,9 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = createRouteHandlerClient({ cookies });
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      console.error('Auth error:', error);
-    }
+    await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // ALWAYS redirect to /portal after magic link
+  // FORCE redirect to the REP PORTAL
   return NextResponse.redirect(new URL('/portal', requestUrl.origin));
 }
