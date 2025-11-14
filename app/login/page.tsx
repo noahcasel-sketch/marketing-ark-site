@@ -1,4 +1,6 @@
-﻿import { createClient } from '@supabase/supabase-js';
+﻿'use client';
+
+import { createClient } from '@supabase/supabase-js';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
