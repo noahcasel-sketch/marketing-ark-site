@@ -1,9 +1,8 @@
-// app/region/page.tsx
-import { cookies } from "next/headers";
-import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import ResendResetButton from "../components/ResendResetButton";
+"use client";
 
-export const dynamic = "force-dynamic";
+import { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
+import ResendResetButton from "../components/ResendResetButton";
 
 type Rep = {
   id: string;
@@ -13,7 +12,13 @@ type Rep = {
   work_email?: string | null;
   region?: string | null;
   active?: boolean | null;
+  created_at?: string | null;
 };
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string,
+);
 
 function displayName(r: Rep) {
   const n = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
@@ -23,45 +28,65 @@ function loginEmail(r: Rep) {
   return (r.email || r.work_email || "").toLowerCase();
 }
 
-export default async function RegionPage() {
-  const supabase = createServerComponentClient({ cookies });
+export default function RegionPage() {
+  const [me, setMe] = useState<string | null>(null);
+  const [reps, setReps] = useState<Rep[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
 
-  // Who is signed in?
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const me = user?.email?.toLowerCase();
+  useEffect(() => {
+    let cancelled = false;
 
-  // Base query
-  let query = supabase
-    .from("reps")
-    .select("id, first_name, last_name, email, work_email, region, active")
-    .order("created_at", { ascending: false });
+    const load = async () => {
+      try {
+        setLoading(true);
+        setErr(null);
 
-  // Owner Noah: only see ARK region
-  if (me === "noahcasel@marketing-ark.com") {
-    query = query.eq("region", "ARK");
-  }
-  // For other region managers, your existing RLS/policies should scope results as needed.
+        // get signed-in user (client)
+        const { data: userData, error: userErr } = await supabase.auth.getUser();
+        if (userErr) throw userErr;
+        const email = userData.user?.email?.toLowerCase() ?? null;
+        if (!cancelled) setMe(email);
 
-  const { data: reps, error } = await query;
+        // Base query
+        let query = supabase
+          .from("reps")
+          .select("id, first_name, last_name, email, work_email, region, active, created_at")
+          .order("created_at", { ascending: false });
 
-  if (error) {
+        // Owner Noah: only see ARK region
+        if (email === "noahcasel@marketing-ark.com") {
+          query = query.eq("region", "ARK");
+        }
+        // For other region managers, rely on your RLS to scope appropriately.
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        if (!cancelled) setReps(data as Rep[]);
+      } catch (e: any) {
+        if (!cancelled) setErr(e?.message ?? "Failed to load region data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const regionLabel = useMemo(() => {
+    return me === "noahcasel@marketing-ark.com" ? "ARK (owner view)" : "Your region";
+  }, [me]);
+
+  const body = useMemo(() => {
+    if (loading) return <p className="text-sm text-gray-600">Loading…</p>;
+    if (err) return <p className="text-sm text-red-600">Error: {err}</p>;
+    if (!reps || reps.length === 0) return <p className="text-sm text-gray-600">No reps found.</p>;
+
     return (
-      <main className="p-6">
-        <h1 className="text-xl font-semibold">Region</h1>
-        <p className="mt-4 text-red-600">Error: {error.message}</p>
-      </main>
-    );
-  }
-
-  const regionLabel =
-    me === "noahcasel@marketing-ark.com" ? "ARK (owner view)" : "Your region";
-
-  return (
-    <main className="p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Region — {regionLabel}</h1>
-
       <div className="overflow-x-auto">
         <table className="min-w-full border border-gray-200 text-sm">
           <thead className="bg-gray-50">
@@ -74,33 +99,36 @@ export default async function RegionPage() {
             </tr>
           </thead>
           <tbody>
-            {(reps as Rep[] | null)?.map((r) => (
+            {reps.map((r) => (
               <tr key={r.id} className="border-t">
                 <td className="px-3 py-2">{displayName(r)}</td>
                 <td className="px-3 py-2">{loginEmail(r)}</td>
                 <td className="px-3 py-2">{(r.region ?? "").toString().toUpperCase()}</td>
                 <td className="px-3 py-2">
                   {r.active ? (
-                    <span className="rounded bg-green-100 px-2 py-0.5 text-green-700">
-                      Active
-                    </span>
+                    <span className="rounded bg-green-100 px-2 py-0.5 text-green-700">Active</span>
                   ) : (
-                    <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-700">
-                      Inactive
-                    </span>
+                    <span className="rounded bg-gray-100 px-2 py-0.5 text-gray-700">Inactive</span>
                   )}
                 </td>
                 <td className="px-3 py-2">
                   <div className="flex flex-col gap-1">
-                    {/* Your existing "Mark Inactive" button/component goes ABOVE this line */}
+                    {/* Your "Mark Inactive" button/component goes ABOVE this line */}
                     <ResendResetButton email={loginEmail(r)} />
                   </div>
                 </td>
               </tr>
-            )) ?? null}
+            ))}
           </tbody>
         </table>
       </div>
+    );
+  }, [loading, err, reps]);
+
+  return (
+    <main className="p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Region — {regionLabel}</h1>
+      {body}
     </main>
   );
 }
