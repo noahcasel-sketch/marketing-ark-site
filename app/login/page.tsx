@@ -1,140 +1,78 @@
 // app/login/page.tsx
-'use client'
+'use client';
 
-import { useMemo, useState } from 'react'
-import { createClient } from '@supabase/supabase-js'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import { useState } from 'react';
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useSearchParams } from 'next/navigation';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [info, setInfo] = useState<string | null>(null)
-  const [sentReset, setSentReset] = useState(false)
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const supabase = createClientComponentClient();
+  const searchParams = useSearchParams();
+  const error = searchParams.get('error');
 
-  const normEmail = useMemo(() => email.trim().toLowerCase(), [email])
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage(null);
 
-  async function precheck(emailLower: string): Promise<'approved'|'pending'|'inactive'|'not_found'|undefined> {
-    try {
-      const res = await fetch('/api/auth/check-email?email=' + encodeURIComponent(emailLower), { cache: 'no-store' })
-      const j = await res.json()
-      return j.status
-    } catch {
-      return undefined
-    }
-  }
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/portal` },
+    });
 
-  async function setServerCookieFromCurrentSession() {
-    const { data } = await supabase.auth.getSession()
-    const access_token = data.session?.access_token
-    const refresh_token = data.session?.refresh_token
-    if (access_token && refresh_token) {
-      await fetch('/api/auth/set-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token, refresh_token }),
-        cache: 'no-store',
-      })
-    }
-  }
-
-  async function onSubmitPassword(e: React.FormEvent) {
-    e.preventDefault()
-    setError(null); setInfo(null); setSentReset(false)
-
-    const status = await precheck(normEmail)
-    if (status === 'inactive') { setInfo('This account is no longer active. If this is incorrect, please contact your manager.'); return }
-    if (status !== 'approved') { setInfo('This email is not recognized in our database.'); return }
-
-    setSending(true)
-    const { data, error: pwErr } = await supabase.auth.signInWithPassword({
-      email: normEmail,
-      password
-    })
-    setSending(false)
-    if (pwErr) { setError(pwErr.message); return }
-
-    // IMPORTANT: set server cookie so /portal SSR sees you as logged in
-    if (!data.session) {
-      // some environments return null immediately; fetch explicitly
-      await setServerCookieFromCurrentSession()
+    if (error) {
+      setMessage(`Error: ${error.message}`);
     } else {
-      const { access_token, refresh_token } = data.session
-      await fetch('/api/auth/set-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token, refresh_token }),
-        cache: 'no-store',
-      })
+      setMessage('Check your email for the magic link!');
     }
-
-    window.location.href = '/portal'
-  }
-
-  async function onResetPassword(e: React.MouseEvent) {
-    e.preventDefault()
-    setError(null); setInfo(null); setSentReset(false)
-
-    const status = await precheck(normEmail)
-    if (status !== 'approved') { setInfo('Use the email that was approved for your account.'); return }
-
-    const res = await fetch('/api/auth/send-reset', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: normEmail })
-    })
-    const j = await res.json().catch(() => ({}))
-    if (!res.ok) { setError(j.error || 'Could not send reset email.'); return }
-    setSentReset(true)
-  }
-
-  const btn = {
-    background: '#60a5fa',
-    color: '#0b1220',
-    borderRadius: 12,
-    padding: '12px 18px',
-    fontWeight: 800,
-    boxShadow: '0 6px 18px rgba(96,165,250,0.25)'
-  } as const
+    setLoading(false);
+  };
 
   return (
-    <main style={{ maxWidth: 560, margin: '64px auto' }}>
-      <h1 style={{ fontSize: 32, fontWeight: 900, marginBottom: 16 }}>Sign in</h1>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-lg p-8">
+        <h1 className="text-2xl font-bold text-center mb-6">Rep Portal Login</h1>
 
-      <form onSubmit={onSubmitPassword} style={{ display: 'grid', gap: 16, padding: 20 }}>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="name@marketing-ark.com"
-          required
-          style={{ height: 52, paddingInline: 14, borderRadius: 12, border: '1px solid #334155', color: '#e5e7eb', background: '#0b1220' }}
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          required
-          style={{ height: 52, paddingInline: 14, borderRadius: 12, border: '1px solid #334155', color: '#e5e7eb', background: '#0b1220' }}
-        />
+        {error === 'unauthorized' && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+            <strong>Access denied.</strong> Your account is not authorized (must be{' '}
+            <code className="font-mono">regional</code>,{' '}
+            <code className="font-mono">owner</code>, or{' '}
+            <code className="font-mono">approved_rep</code>).
+          </div>
+        )}
 
-        {info && <p style={{ color: '#94a3b8', fontSize: 14 }}>{info}</p>}
-        {error && <p style={{ color: '#ef4444', fontSize: 14 }}>{error}</p>}
-        {sentReset && <p style={{ color: '#60a5fa', fontSize: 14 }}>Password reset email sent—check your inbox.</p>}
+        {message && (
+          <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+            {message}
+          </div>
+        )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button type="submit" disabled={sending} style={btn}>
-            {sending ? 'Signing in…' : 'Sign in'}
+        <form onSubmit={handleLogin} className="space-y-4">
+          <input
+            type="email"
+            placeholder="Enter your email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            className="w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
+          >
+            {loading ? 'Sending...' : 'Send Magic Link'}
           </button>
-          <a href="#" onClick={onResetPassword} style={{ color: '#93c5fd', fontWeight: 700 }}>Forgot password?</a>
-        </div>
-      </form>
-    </main>
-  )
+        </form>
+
+        <p className="mt-6 text-center text-sm text-gray-600">
+          Only authorized reps can access the portal.
+        </p>
+      </div>
+    </div>
+  );
 }
