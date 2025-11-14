@@ -33,7 +33,7 @@ export default function Login() {
     setLoading(true);
     setError('');
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: 'https://www.marketing-ark.com/auth/reset'
+      redirectTo: 'https://www.marketing-ark.com/auth/reset-password'
     });
     if (error) {
       setError(error.message);
