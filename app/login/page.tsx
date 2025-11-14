@@ -23,11 +23,7 @@ export default function LoginPage() {
       options: { emailRedirectTo: `${window.location.origin}/portal` },
     });
 
-    if (error) {
-      setMessage(`Error: ${error.message}`);
-    } else {
-      setMessage('Check your email for the magic link!');
-    }
+    setMessage(error ? `Error: ${error.message}` : 'Check your email for the magic link!');
     setLoading(false);
   };
 
@@ -37,16 +33,17 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold text-center mb-6">Rep Portal Login</h1>
 
         {error === 'unauthorized' && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-            <strong>Access denied.</strong> Your account is not authorized (must be{' '}
-            <code className="font-mono">regional</code>,{' '}
-            <code className="font-mono">owner</code>, or{' '}
-            <code className="font-mono">approved_rep</code>).
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+            <strong>Access denied.</strong> You must be:
+            <ul className="mt-2 ml-4 list-disc">
+              <li><code>owner</code> or <code>regional</code> (in <code>staff</code> table)</li>
+              <li>OR an <code>active</code> rep (in <code>reps</code> table)</li>
+            </ul>
           </div>
         )}
 
         {message && (
-          <div className="mb-4 p-4 bg-green-50 border border-green-200 text-green-700 rounded-lg">
+          <div className={`mb-4 p-4 rounded-lg text-sm ${message.includes('Error') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
             {message}
           </div>
         )}
@@ -63,15 +60,11 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition"
+            className="w-full py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
           >
             {loading ? 'Sending...' : 'Send Magic Link'}
           </button>
         </form>
-
-        <p className="mt-6 text-center text-sm text-gray-600">
-          Only authorized reps can access the portal.
-        </p>
       </div>
     </div>
   );
