@@ -1,7 +1,7 @@
 // app/company/page.tsx
 import { cookies } from "next/headers";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
-import ResendResetButton from "../../components/ResendResetButton";
+import ResendResetButton from "../components/ResendResetButton";
 
 export const dynamic = "force-dynamic";
 
@@ -9,8 +9,8 @@ type Rep = {
   id: string;
   first_name?: string | null;
   last_name?: string | null;
-  email?: string | null;          // login email
-  work_email?: string | null;     // if you store it separately
+  email?: string | null;       // login email
+  work_email?: string | null;  // if stored separately
   region?: string | null;
   active?: boolean | null;
   created_at?: string | null;
@@ -66,6 +66,7 @@ export default async function CompanyPage({
   }
 
   const { data: reps, error } = await repQuery;
+
   if (error) {
     return (
       <main className="p-6">
