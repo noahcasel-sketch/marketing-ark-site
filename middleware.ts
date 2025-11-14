@@ -11,6 +11,11 @@ export async function middleware(req) {
     return NextResponse.redirect(new URL('/portal', req.url));
   }
 
+  // Protect /portal/* – redirect to /login if no session
+  if (req.nextUrl.pathname.startsWith('/portal') && !session) {
+    return NextResponse.redirect(new URL('/login', req.url));
+  }
+
   return res;
 }
 
