@@ -19,13 +19,11 @@ export default function Login() {
   const router = useRouter();
 
   useEffect(() => {
-    // Override body background for login page
-    document.body.style.background = '#ffffff';
-    document.body.style.color = '#111827';
+    // Add light theme class to html element for login page
+    document.documentElement.classList.add('light-theme');
     return () => {
-      // Reset on unmount
-      document.body.style.background = '';
-      document.body.style.color = '';
+      // Remove light theme class on unmount
+      document.documentElement.classList.remove('light-theme');
     };
   }, []);
 
