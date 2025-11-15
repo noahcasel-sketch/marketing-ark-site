@@ -1,7 +1,7 @@
 'use client';
 
 import { createClient } from '@supabase/supabase-js';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 const supabase = createClient(
@@ -17,6 +17,17 @@ export default function Login() {
   const [resetMode, setResetMode] = useState(false);
   const [resetSent, setResetSent] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    // Override body background for login page
+    document.body.style.background = '#ffffff';
+    document.body.style.color = '#111827';
+    return () => {
+      // Reset on unmount
+      document.body.style.background = '';
+      document.body.style.color = '';
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +56,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-white flex items-center justify-center p-4" style={{ zIndex: 100 }}>
       <div className="bg-white max-w-md w-full">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome back</h1>
