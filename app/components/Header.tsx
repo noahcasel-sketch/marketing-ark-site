@@ -3,6 +3,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, useCallback } from 'react'
+import { usePathname } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
@@ -13,8 +14,14 @@ const supabase = createClient(
 type StaffInfo = { email: string | null; role: 'owner' | 'regional' | null; regions: string[] }
 
 export default function Header() {
+  const pathname = usePathname()
   const [email, setEmail] = useState<string | null>(null)
   const [staff, setStaff] = useState<StaffInfo>({ email: null, role: null, regions: [] })
+
+  // Hide header on login page
+  if (pathname === '/login') {
+    return null
+  }
 
   const fetchServerSession = useCallback(async () => {
     try {
