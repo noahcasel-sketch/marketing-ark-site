@@ -18,6 +18,13 @@ html, body {
 }
 a { color: inherit; text-decoration: none; }
 
+/* Light theme override for login and other pages that need it */
+html.light-theme,
+html.light-theme body {
+  background: #ffffff;
+  color: #111827;
+}
+
 /* ========= Layout ========= */
 /* Keep body content the same width as header */
 .container {
